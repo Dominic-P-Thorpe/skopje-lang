@@ -353,6 +353,8 @@ impl Scanner {
                         match token_text {
                             "fn" => return Ok(TokenType::FnKeyword),
                             "return" => return Ok(TokenType::ReturnKeyword),
+                            "if" => return  Ok(TokenType::IfKeyword),
+                            "else" => return Ok(TokenType::ElseKeyword),
                             // is not a keyword, and therefore is an identifier
                             _ => return Ok(TokenType::Identifier(token_text.to_owned()))
                         }

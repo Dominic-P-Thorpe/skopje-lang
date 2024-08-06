@@ -58,6 +58,8 @@ pub enum SyntaxNode {
     Function(String, Vec<(String, Type)>, Type, Vec<SyntaxTree>),
     // expression to return
     ReturnStmt(Box<SyntaxTree>),
+    // condition, body, optional else
+    SelectionStatement(Box<SyntaxTree>, Vec<SyntaxTree>, Option<Vec<SyntaxTree>>),
     // binary operation, left side, right side
     BinaryOperation(String, Box<SyntaxTree>, Box<SyntaxTree>),
     RightAssocUnaryOperation(String, Box<SyntaxTree>),
@@ -160,7 +162,7 @@ impl Parser {
                 let open_body = self.tokens.pop_front().unwrap();
                 assert!(matches!(open_body.token_type, TokenType::OpenCurly));
                 
-                let body = self.parse_func_body()?;
+                let body = self.parse_stmt_block()?;
                 
                 let close_body = self.tokens.pop_front().unwrap();
                 assert!(matches!(close_body.token_type, TokenType::CloseCurly));
@@ -237,31 +239,38 @@ impl Parser {
     ///  - variable declarations and reassignments
     ///  - expressions
     ///  - if-else statements
-    fn parse_func_body(&mut self) -> Result<Vec<SyntaxTree>, ParsingError> {
+    fn parse_stmt_block(&mut self) -> Result<Vec<SyntaxTree>, ParsingError> {
         let mut statements: Vec<SyntaxTree> = vec![];
         loop {
-            let next_token = self.tokens.pop_front().unwrap();
-            let expr = match next_token.token_type {
-                TokenType::ReturnKeyword => self.parse_expression()?,
-                _ => return Err(ParsingError::UnexpectedToken(next_token))
-            };
+            let statement = self.parse_statement()?;
+            statements.push(statement);
 
-            // check that the statement ends in a semicolon, otherwise, throw a 
-            // ParsingError::MissingSemicolon
-            if let TokenType::Semicolon = self.tokens.pop_front().unwrap().token_type {
-                statements.push(SyntaxTree::new(
-                    SyntaxNode::ReturnStmt(Box::new(expr.clone()))
-                ));
-
-                if let TokenType::CloseCurly = self.tokens.get(0).unwrap().token_type {
-                    break;
-                }
-            } else {
-                return Err(ParsingError::MissingSemicolon(expr.start_line));
+            if let TokenType::CloseCurly = self.tokens.get(0).unwrap().token_type {
+                break;
             }
         }
 
         Ok(statements)
+    }
+
+
+    fn parse_statement(&mut self) -> Result<SyntaxTree, ParsingError> {
+        let next_token = self.tokens.pop_front().unwrap();
+        match next_token.token_type {
+            TokenType::ReturnKeyword => self.parse_return(),
+            TokenType::IfKeyword => self.parse_selection(),
+            _ => return Err(ParsingError::UnexpectedToken(next_token))
+        }
+    }
+
+
+    fn parse_return(&mut self) -> Result<SyntaxTree, ParsingError> {
+        let expr = self.parse_expression()?;
+        if let TokenType::Semicolon = self.tokens.pop_front().unwrap().token_type {
+            return Ok(SyntaxTree::new(SyntaxNode::ReturnStmt(Box::new(expr))));
+        }
+
+        Err(ParsingError::MissingSemicolon(0))
     }
 
 
@@ -473,5 +482,47 @@ impl Parser {
         }
 
         Ok(args)
+    }
+
+
+    fn parse_selection(&mut self) -> Result<SyntaxTree, ParsingError> {
+        // parse the condition
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::OpenParen));
+
+        let cond = self.parse_expression()?;
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::CloseParen));
+
+        let next_token = self.tokens.pop_front().unwrap();
+        let if_body = match next_token.token_type {
+            TokenType::OpenCurly => self.parse_stmt_block()?,
+            _ => {
+                self.tokens.push_front(next_token);
+                vec![self.parse_statement()?]
+            }
+        };
+
+        let next_token = self.tokens.pop_front().unwrap();
+        let else_body = match next_token.token_type {
+            TokenType::ElseKeyword => {
+                let next_token = self.tokens.pop_front().unwrap();
+                Some(match next_token.token_type {
+                    TokenType::OpenCurly => self.parse_stmt_block()?,
+                    _ => {
+                        self.tokens.push_front(next_token);
+                        vec![self.parse_statement()?]
+                    }
+                })
+            },
+
+            _ => {
+                self.tokens.push_front(next_token);
+                None
+            }
+        };
+
+        Ok(SyntaxTree::new(SyntaxNode::SelectionStatement(Box::new(cond), if_body, else_body)))
     }
 }

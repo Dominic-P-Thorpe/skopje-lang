@@ -122,10 +122,39 @@ impl Transpiler {
 
                 Ok(func_id.to_owned() + &"(".to_owned() + &args.join(", ") + &")".to_owned())
             },
+
+            SyntaxNode::SelectionStatement(cond, if_body, None) => {
+                Ok(format!(
+                    "{0}if ({1}) {{\n{2}\n{0}}}",
+                    "    ".repeat(indent), 
+                    Transpiler::transpile_c_tree(cond, indent)?,
+                    if_body.iter()
+                           .map(|s| Transpiler::transpile_c_tree(s, indent + 1).unwrap())
+                           .collect::<Vec<String>>()
+                           .join("\n")
+                )) 
+            }
+
+            SyntaxNode::SelectionStatement(cond, if_body, Some(else_body)) => {
+                Ok(format!(
+                    "{0}if ({1}) {{\n{2}\n{0}}} else {{\n{3}\n{0}}}", 
+                    "    ".repeat(indent), 
+                    Transpiler::transpile_c_tree(cond, indent)?,
+                    if_body.iter()
+                           .map(|s| Transpiler::transpile_c_tree(s, indent + 1).unwrap())
+                           .collect::<Vec<String>>()
+                           .join("\n"),
+                    else_body.iter()
+                             .map(|s| Transpiler::transpile_c_tree(s, indent + 1).unwrap())
+                             .collect::<Vec<String>>()
+                             .join("\n")
+                )) 
+            }
         }
     }
 
 
+    /// Converts Skopje types to their closest equivalents in C using the stdint.h library.
     fn convert_type_to_ctype(original: &str) -> &str {
         match original {
             "i32" => "int32_t",
