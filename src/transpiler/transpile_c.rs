@@ -124,6 +124,17 @@ impl Transpiler {
                 Ok(func_id.to_owned() + &"(".to_owned() + &args.join(", ") + &")".to_owned())
             },
 
+            SyntaxNode::FunctionCallStmt(func_id, args) => {
+                let args: Vec<String> = args.iter()
+                                            .map(|arg| Transpiler::transpile_c_tree(arg, indent).unwrap())
+                                            .collect();
+                if func_id == &String::from("print") {
+                    return Ok(format!("{}printf({});", "    ".repeat(indent), args.first().unwrap()));
+                }
+
+                Ok(format!("{}({});", "    ".repeat(indent), args.join(", ")))
+            },
+
             SyntaxNode::SelectionStatement(cond, if_body, None) => {
                 Ok(format!(
                     "{0}if ({1}) {{\n{2}\n{0}}}",

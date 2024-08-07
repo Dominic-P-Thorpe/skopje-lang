@@ -69,6 +69,7 @@ pub enum SyntaxNode {
     ParenExpr(Box<SyntaxTree>),
     // function name, arguments
     FunctionCall(String, Vec<SyntaxTree>),
+    FunctionCallStmt(String, Vec<SyntaxTree>),
     StringLiteral(String),
     IntLiteral(u64),
     Identifier(String)
@@ -260,8 +261,23 @@ impl Parser {
         match next_token.token_type {
             TokenType::ReturnKeyword => self.parse_return(),
             TokenType::IfKeyword => self.parse_selection(),
-            _ => return Err(ParsingError::UnexpectedToken(next_token))
+            TokenType::Identifier(id) => self.parse_func_call_stmt(id),
+
+            _ => Err(ParsingError::UnexpectedToken(next_token))
         }
+    }
+
+
+    fn parse_func_call_stmt(&mut self, id: String) -> Result<SyntaxTree, ParsingError> {
+        let next_token = self.tokens.pop_front().unwrap();
+        if let TokenType::OpenParen = next_token.token_type {
+            let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
+            if let TokenType::Semicolon = self.tokens.pop_front().unwrap().token_type {
+                return Ok(SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments)));
+            }
+        }
+        
+        Err(ParsingError::UnexpectedToken(next_token))
     }
 
 
