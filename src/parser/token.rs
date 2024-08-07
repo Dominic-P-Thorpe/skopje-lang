@@ -48,6 +48,7 @@ pub enum TokenType {
     ReturnKeyword,
     IfKeyword,
     ElseKeyword,
+    WhileKeyword,
     StrLiteral(String),
     IntLiteral(u64),
     Identifier(String)

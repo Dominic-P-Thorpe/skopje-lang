@@ -58,6 +58,8 @@ pub enum SyntaxNode {
     Function(String, Vec<(String, Type)>, Type, Vec<SyntaxTree>),
     // expression to return
     ReturnStmt(Box<SyntaxTree>),
+    // condition, body
+    WhileStmt(Box<SyntaxTree>, Vec<SyntaxTree>),
     // condition, body, optional else
     SelectionStatement(Box<SyntaxTree>, Vec<SyntaxTree>, Option<Vec<SyntaxTree>>),
     // binary operation, left side, right side
@@ -261,10 +263,30 @@ impl Parser {
         match next_token.token_type {
             TokenType::ReturnKeyword => self.parse_return(),
             TokenType::IfKeyword => self.parse_selection(),
+            TokenType::WhileKeyword => self.parse_while_loop(),
             TokenType::Identifier(id) => self.parse_func_call_stmt(id),
-
             _ => Err(ParsingError::UnexpectedToken(next_token))
         }
+    }
+
+
+    fn parse_while_loop(&mut self) -> Result<SyntaxTree, ParsingError> {
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::OpenParen));
+
+        let expr = self.parse_expression()?;
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::CloseParen));
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::OpenCurly));
+
+        let body = self.parse_stmt_block()?;
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+
+        Ok(SyntaxTree::new(SyntaxNode::WhileStmt(Box::new(expr), body)))
     }
 
 

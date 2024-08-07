@@ -357,6 +357,7 @@ impl Scanner {
                             "return" => return Ok(TokenType::ReturnKeyword),
                             "if" => return  Ok(TokenType::IfKeyword),
                             "else" => return Ok(TokenType::ElseKeyword),
+                            "while" => return Ok(TokenType::WhileKeyword),
                             // is not a keyword, and therefore is an identifier
                             _ => return Ok(TokenType::Identifier(token_text.to_owned()))
                         }

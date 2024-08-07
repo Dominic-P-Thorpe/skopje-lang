@@ -162,6 +162,18 @@ impl Transpiler {
                              .join("\n")
                 )) 
             }
+
+            
+            SyntaxNode::WhileStmt(cond, body) => {
+                Ok(format!(
+                    "{0}while ({1}) {{\n{2}{0}\n{0}}}\n", "    ".repeat(indent),
+                    Transpiler::transpile_c_tree(cond, indent)?,
+                    body.iter()
+                        .map(|s| Transpiler::transpile_c_tree(s, indent + 1).unwrap())
+                        .collect::<Vec<String>>()
+                        .join("\n")
+                ))
+            }
         }
     }
 
