@@ -69,6 +69,7 @@ pub enum SyntaxNode {
     ParenExpr(Box<SyntaxTree>),
     // function name, arguments
     FunctionCall(String, Vec<SyntaxTree>),
+    StringLiteral(String),
     IntLiteral(u64),
     Identifier(String)
 }
@@ -426,6 +427,7 @@ impl Parser {
     fn parse_factor(&mut self) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
+            TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s))),
             TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n))),
 
             TokenType::Identifier(id) => {

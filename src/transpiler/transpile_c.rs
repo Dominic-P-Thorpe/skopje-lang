@@ -89,7 +89,7 @@ impl Transpiler {
                                     .map(|s| Transpiler::transpile_c_tree(s, indent + 1).unwrap())
                                     .collect::<Vec<String>>()
                                     .join("\n");
-                Ok(return_type_text.to_string() + " " + name + "(" + &args_string + ")" + " {\n" + &body_text + "\n}")
+                Ok("\n".to_owned() + &return_type_text.to_string() + " " + name + "(" + &args_string + ")" + " {\n" + &body_text + "\n}\n\n")
             }
 
             SyntaxNode::ReturnStmt(body) => {
@@ -109,6 +109,7 @@ impl Transpiler {
                 Ok(Transpiler::transpile_c_tree(l, indent)? + " " + op),
             SyntaxNode::ParenExpr(expr) => 
                 Ok("(".to_owned() + &Transpiler::transpile_c_tree(expr, indent)? + ")"),
+            SyntaxNode::StringLiteral(s) => Ok(format!("\"{}\"", s)),
             SyntaxNode::IntLiteral(n) => Ok(n.to_string()),
             SyntaxNode::Identifier(id) => Ok(id.to_owned()),
             SyntaxNode::Program(_) => panic!("Got program when I should not have!"),
@@ -116,8 +117,8 @@ impl Transpiler {
                 let args: Vec<String> = args.iter()
                                             .map(|arg| Transpiler::transpile_c_tree(arg, indent).unwrap())
                                             .collect();
-                if func_id == &String::from("println") {
-                    return Ok(format!("printf(\"{}\\n\")", args.first().unwrap()));
+                if func_id == &String::from("print") {
+                    return Ok(format!("printf({})", args.first().unwrap()));
                 }
 
                 Ok(func_id.to_owned() + &"(".to_owned() + &args.join(", ") + &")".to_owned())
@@ -159,6 +160,7 @@ impl Transpiler {
         match original {
             "i32" => "int32_t",
             "u32" => "uint32_t",
+            "str" => "char*",
             _ => panic!("Unrecognized type")
         }
     }

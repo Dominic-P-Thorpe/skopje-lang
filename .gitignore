@@ -1,5 +1,9 @@
 /target
 Cargo.lock
 *.skj
-*.c
 *.exe
+*.c
+*.h
+!c_libs/*.c
+!c_libs/*.h
+.vscode

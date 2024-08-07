@@ -343,6 +343,8 @@ impl Scanner {
                 } 
             }
 
+            "\"" => self.tokenize_string(line),
+
             _ => {
                 // check if this token is a valid identifier
                 if is_valid_identifier(token_text) {
@@ -370,6 +372,59 @@ impl Scanner {
                 Err(LexingError::UnrecognizedToken(token_text.to_owned(), self.line, self.start))
             }
         }
+    }
+
+
+    /// Creates a string token from the source text, assuming that the first '"' character has
+    /// already been encountered.
+    /// 
+    /// Will permit the use of escape characters '\0', '\n', '\r', '\t', '\\' and '\"', and ends the 
+    /// token at the first unescaped '"' character encountered.
+    /// 
+    /// # Errors
+    /// 
+    /// Will return an error if no final '"' character is found.
+    /// 
+    /// # Examples
+    /// ```
+    /// // assume that the lexer has just encountered a '"'
+    /// self.parse_string()
+    /// ```
+    fn tokenize_string(&mut self, line: &str) -> Result<TokenType, LexingError> {
+        let mut string: String = String::new();
+
+        loop {
+            // advance and check that we have not reached the end of the line without ending the
+            // string
+            self.advance();
+            let token_text: &str = if self.current as usize <= line.len() {
+                &line[self.start as usize..self.current as usize]
+            } else {
+                return Err(LexingError::NonTerminatedString);
+            };
+
+            // check if we have an escaped character to handle, if so, handle it and advance again
+            if token_text.chars().last().unwrap() == '\\' {
+                match self.peek(line, 0).unwrap() {
+                    '\\' => string += "\\\\",
+                    '"' => string += "\\\"",
+                    't' => string += "\\t",
+                    'n' => string += "\\n",
+                    'r' => string += "\\r",
+                    '0' => string += "\\0",
+                    c => return Err(LexingError::InvalidEscapeCharacter(c))
+                }
+
+                self.advance();
+            } else if token_text.chars().last().unwrap() == '"' { // end of the string
+                break;
+            } else { // add a normal character
+                string.push(token_text.chars().last().unwrap());
+            }
+        }
+
+        self.start = self.current;
+        Ok(TokenType::StrLiteral(string))
     }
 }
 
