@@ -180,6 +180,13 @@ impl Transpiler {
                 Transpiler::convert_type_to_ctype(&var_type.basic_type), 
                 id, 
                 Transpiler::transpile_c_tree(expr, indent)?
+            )),
+
+            SyntaxNode::ReassignmentStmt(id, expr) => Ok(format!(
+                "{}{} = {};",
+                "    ".repeat(indent), 
+                id,
+                Transpiler::transpile_c_tree(expr, indent)?
             ))
         }
     }

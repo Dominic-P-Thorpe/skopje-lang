@@ -62,6 +62,8 @@ pub enum SyntaxNode {
     WhileStmt(Box<SyntaxTree>, Vec<SyntaxTree>),
     // variable name, type, expression
     LetStmt(String, Type, Box<SyntaxTree>),
+    // variable name, new value expression
+    ReassignmentStmt(String, Box<SyntaxTree>),
     // condition, body, optional else
     SelectionStatement(Box<SyntaxTree>, Vec<SyntaxTree>, Option<Vec<SyntaxTree>>),
     // binary operation, left side, right side
@@ -314,10 +316,38 @@ impl Parser {
             TokenType::ReturnKeyword => self.parse_return(),
             TokenType::IfKeyword => self.parse_selection(),
             TokenType::WhileKeyword => self.parse_while_loop(),
-            TokenType::Identifier(id) => self.parse_func_call_stmt(id),
+            TokenType::Identifier(id) => self.parse_func_call_or_reassignment_stmt(id),
             TokenType::LetKeyword => self.parse_let_statement(),
             _ => Err(ParsingError::UnexpectedToken(next_token))
         }
+    }
+
+
+    fn parse_func_call_or_reassignment_stmt(&mut self, id: String) -> Result<SyntaxTree, ParsingError> {
+        let next_token = self.tokens.get(0).unwrap();
+        match next_token.token_type {
+            TokenType::OpenParen => self.parse_func_call_stmt(id),
+            TokenType::Equal => self.parse_reassignment(id),
+            _ => Err(ParsingError::UnexpectedToken(next_token.clone()))
+        }
+    }
+
+
+    fn parse_reassignment(&mut self, id: String) -> Result<SyntaxTree, ParsingError> {
+        match self.context.valid_identifiers.get(&id) {
+            Some(_) => (),
+            None => panic!("Semantic error: The identifier {} could not be found!", id)
+        }
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::Equal));
+
+        let expr = self.parse_expression()?;
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::Semicolon));
+
+        Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(id, Box::new(expr))))
     }
 
 
