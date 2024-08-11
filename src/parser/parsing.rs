@@ -60,6 +60,8 @@ pub enum SyntaxNode {
     ReturnStmt(Box<SyntaxTree>),
     // condition, body
     WhileStmt(Box<SyntaxTree>, Vec<SyntaxTree>),
+    // variable name, expression
+    LetStmt(String, String, Box<SyntaxTree>),
     // condition, body, optional else
     SelectionStatement(Box<SyntaxTree>, Vec<SyntaxTree>, Option<Vec<SyntaxTree>>),
     // binary operation, left side, right side
@@ -265,8 +267,40 @@ impl Parser {
             TokenType::IfKeyword => self.parse_selection(),
             TokenType::WhileKeyword => self.parse_while_loop(),
             TokenType::Identifier(id) => self.parse_func_call_stmt(id),
+            TokenType::LetKeyword => self.parse_let_statement(),
             _ => Err(ParsingError::UnexpectedToken(next_token))
         }
+    }
+
+
+    /// Parses a let statement
+    /// 
+    /// Let statements have the form: `"let" <identifier> ":" <type> "=" <expression> ";"`.
+    fn parse_let_statement(&mut self) -> Result<SyntaxTree, ParsingError> {
+        let next_token = self.tokens.pop_front().unwrap();
+        let id: String = match next_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(ParsingError::UnexpectedToken(next_token))
+        };
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::Colon));
+
+        let next_token = self.tokens.pop_front().unwrap();
+        let var_type: String = match next_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(ParsingError::UnexpectedToken(next_token))
+        };
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::Equal));
+
+        let expression: SyntaxTree = self.parse_expression()?;
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::Semicolon));
+
+        Ok(SyntaxTree::new(SyntaxNode::LetStmt(id, var_type, Box::new(expression))))
     }
 
 

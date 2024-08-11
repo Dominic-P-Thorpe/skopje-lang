@@ -7,4 +7,5 @@ Cargo.lock
 !c_libs/*.c
 !c_libs/*.h
 c_libs/*.gch
+c_libs/test.cpp
 .vscode

@@ -162,7 +162,6 @@ impl Transpiler {
                              .join("\n")
                 )) 
             }
-
             
             SyntaxNode::WhileStmt(cond, body) => {
                 Ok(format!(
@@ -174,6 +173,14 @@ impl Transpiler {
                         .join("\n")
                 ))
             }
+
+            SyntaxNode::LetStmt(id, var_type, expr) => Ok(format!(
+                "{}{} {} = {};",
+                "    ".repeat(indent), 
+                Transpiler::convert_type_to_ctype(var_type), 
+                id, 
+                Transpiler::transpile_c_tree(expr, indent)?
+            ))
         }
     }
 
