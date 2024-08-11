@@ -177,7 +177,7 @@ impl Transpiler {
             SyntaxNode::LetStmt(id, var_type, expr) => Ok(format!(
                 "{}{} {} = {};",
                 "    ".repeat(indent), 
-                Transpiler::convert_type_to_ctype(var_type), 
+                Transpiler::convert_type_to_ctype(&var_type.basic_type), 
                 id, 
                 Transpiler::transpile_c_tree(expr, indent)?
             ))

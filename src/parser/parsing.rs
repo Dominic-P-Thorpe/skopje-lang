@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use super::{errors::ParsingError, token::*};
 
@@ -60,8 +60,8 @@ pub enum SyntaxNode {
     ReturnStmt(Box<SyntaxTree>),
     // condition, body
     WhileStmt(Box<SyntaxTree>, Vec<SyntaxTree>),
-    // variable name, expression
-    LetStmt(String, String, Box<SyntaxTree>),
+    // variable name, type, expression
+    LetStmt(String, Type, Box<SyntaxTree>),
     // condition, body, optional else
     SelectionStatement(Box<SyntaxTree>, Vec<SyntaxTree>, Option<Vec<SyntaxTree>>),
     // binary operation, left side, right side
@@ -99,12 +99,55 @@ impl SyntaxTree {
 }
 
 
+/// Represents the current semantic context of the compiler, necessary for debugging and semantic
+/// checking.
+/// 
+/// Contains information about the identifiers which are valid for use in the current context, such
+/// as their type.
+pub struct Context {
+    /// The valid identifiers in this context and their types
+    pub valid_identifiers: HashMap<String, (Type, usize)>,
+    context_window_id: usize
+}
+
+
+impl Context {
+    pub fn new() -> Self {
+        Context {
+            valid_identifiers: HashMap::new(),
+            context_window_id: 0
+        }
+    }
+
+
+    pub fn add_var(&mut self, id: String, t: Type) {
+        self.valid_identifiers.insert(id, (t, self.context_window_id));
+    }
+
+
+    pub fn start_new_context_window(&mut self) -> usize {
+        self.context_window_id += 1;
+        self.context_window_id
+    }
+
+
+    pub fn end_context_window(&mut self, context_window: &usize) {
+        self.valid_identifiers = self.valid_identifiers
+                                     .iter()
+                                     .filter(|(_, (_, window_id))| window_id != context_window)
+                                     .map(|(k, (t, w))| (k.clone(), (t.clone(), *w)))
+                                     .collect();
+    }
+}
+
+
 /// Contains a [`VecDeque`] of tokens which can be used as a FIFO queue data structure. 
 /// 
 /// This data structure is modified by the parser as tokens are sequentially popped off of the front
 /// of the queue and organized into the AST.
 pub struct Parser {
-    tokens: VecDeque<Token>
+    tokens: VecDeque<Token>,
+    context: Context
 }
 
 
@@ -112,7 +155,10 @@ impl Parser {
     /// Creates a [`VecDeque`] of tokens which can be used as a FIFO queue data structure in the
     /// [`Parser`] struct.  
     pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens: VecDeque::from(tokens) }
+        Parser { 
+            tokens: VecDeque::from(tokens),
+            context: Context::new()
+        }
     }
 
 
@@ -172,7 +218,7 @@ impl Parser {
                 
                 let close_body = self.tokens.pop_front().unwrap();
                 assert!(matches!(close_body.token_type, TokenType::CloseCurly));
-    
+                
                 return Ok(SyntaxTree::new(
                     SyntaxNode::Function(id, params, Type::new(return_type_id, false), body)
                 ));
@@ -246,6 +292,7 @@ impl Parser {
     ///  - expressions
     ///  - if-else statements
     fn parse_stmt_block(&mut self) -> Result<Vec<SyntaxTree>, ParsingError> {
+        let context_window_id: usize = self.context.start_new_context_window();
         let mut statements: Vec<SyntaxTree> = vec![];
         loop {
             let statement = self.parse_statement()?;
@@ -256,6 +303,7 @@ impl Parser {
             }
         }
 
+        self.context.end_context_window(&context_window_id);
         Ok(statements)
     }
 
@@ -286,11 +334,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Colon));
 
-        let next_token = self.tokens.pop_front().unwrap();
-        let var_type: String = match next_token.token_type {
-            TokenType::Identifier(id) => id,
-            _ => return Err(ParsingError::UnexpectedToken(next_token))
-        };
+        let var_type = self.parse_type()?;
 
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Equal));
@@ -300,7 +344,17 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Semicolon));
 
+        self.context.add_var(id.clone(), var_type.clone());
         Ok(SyntaxTree::new(SyntaxNode::LetStmt(id, var_type, Box::new(expression))))
+    }
+
+
+    fn parse_type(&mut self) -> Result<Type, ParsingError> {
+        let next_token = self.tokens.pop_front().unwrap();
+        match next_token.token_type {
+            TokenType::Identifier(id) => Ok(Type::new(id, false)),
+            _ => return Err(ParsingError::UnexpectedToken(next_token))
+        }
     }
 
 
@@ -503,6 +557,12 @@ impl Parser {
             TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n))),
 
             TokenType::Identifier(id) => {
+                // check that the identifier is valid in this context
+                match self.context.valid_identifiers.get(&id) {
+                    Some(_) => (),
+                    None => panic!("Semantic error: The identifier {} could not be found!", id)
+                }
+
                 let next_token = self.tokens.pop_front().unwrap();
                 match next_token.token_type {
                     TokenType::OpenParen => { // function call
