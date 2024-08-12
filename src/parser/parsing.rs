@@ -73,6 +73,7 @@ pub enum SyntaxNode {
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
+    MonadicExpr(Vec<SyntaxTree>),
     // function name, arguments
     FunctionCall(String, Vec<SyntaxTree>),
     FunctionCallStmt(String, Vec<SyntaxTree>),
@@ -585,6 +586,7 @@ impl Parser {
         match next_token.token_type {
             TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s))),
             TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n))),
+            TokenType::DoKeyword => self.parse_do_block(),
 
             TokenType::Identifier(id) => {
                 // check that the identifier is valid in this context
@@ -619,6 +621,25 @@ impl Parser {
 
             _ => Err(ParsingError::UnexpectedToken(next_token))
         }
+    }
+
+
+    /// Produces a monadic action such as `IO<()>` or `IO<str>`.
+    /// 
+    /// The value contained within a monad cannot be extracted from a monad outside of another
+    /// monad, as in Haskell, for example. This ensures that side effects, such as reading and
+    /// writing from standard I/O, are properly ordered and are not parallelized, causing problems
+    /// with out-of-order effects - this is why monads are never parallelized.
+    fn parse_do_block(&mut self) -> Result<SyntaxTree, ParsingError> {
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::OpenCurly));
+
+        let body = self.parse_stmt_block()?;
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+
+        Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(body)))
     }
 
 
