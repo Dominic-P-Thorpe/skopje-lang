@@ -90,10 +90,7 @@ impl Transpiler {
 
 
     pub fn transpile_c(&mut self) -> Result<(), Box<dyn Error>> {
-        self.file.write(b"#include <stdlib.h>\n")?;
-        self.file.write(b"#include <stdio.h>\n")?;
-        self.file.write(b"#include <stdint.h>\n")?;
-        self.file.write(b"#include \"c_libs/monad.h\"\n\n")?;
+        self.file.write(b"#include \"c_libs/helper.h\"\n\n")?;
 
         if let SyntaxNode::Program(statements) = &self.ast.node.clone() {
             let mut statements_text: String = String::new();
@@ -105,10 +102,11 @@ impl Transpiler {
             for func in &self.functions_source {
                 self.file.write(func.as_bytes())?;
             }
-            self.file.write(b"\n\n")?;
+            self.file.write(b"\n\n")?; // add in some extra line spacing
             
             self.file.write(statements_text.as_bytes())?;
-            self.file.write(b"int main() {\n\t__special__main();\n\treturn 1;\n}\n\n")?;
+            self.file.write(b"int main() {\n\tBIND_IF_MONAD(__special__main);\n\treturn 1;\n}")?;
+            
             return Ok(());
         } 
 
