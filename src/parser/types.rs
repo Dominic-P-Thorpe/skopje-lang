@@ -8,6 +8,7 @@ pub enum SimpleType {
     U32,
     Str,
     Void,
+    Bool,
     IOMonad
 }
 
@@ -19,6 +20,7 @@ impl SimpleType {
             "u32" => Self::U32,
             "str" => Self::Str,
             "void" => Self::Void,
+            "bool" => Self::Bool,
             "IO" => Self::IOMonad,
             name => return Err(Box::new(ParsingError::InvalidTypeName(name.to_owned())))
         })
@@ -32,6 +34,7 @@ impl SimpleType {
             Self::I32 => "int32_t",
             Self::U32 => "uint32_t",
             Self::Str => "std::string",
+            Self::Bool => "bool",
             Self::IOMonad => "IOMonad"
         }
     }

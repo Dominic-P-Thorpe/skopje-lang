@@ -65,6 +65,7 @@ pub enum SyntaxNode {
     FunctionCallStmt(String, Vec<SyntaxTree>),
     StringLiteral(String),
     IntLiteral(u64),
+    BoolLiteral(bool),
     Identifier(String)
 }
 
@@ -623,6 +624,7 @@ impl Parser {
         match next_token.token_type {
             TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s))),
             TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n))),
+            TokenType::BoolLiteral(b) => Ok(SyntaxTree::new(SyntaxNode::BoolLiteral(b))),
             TokenType::DoKeyword => self.parse_do_block(),
 
             TokenType::Identifier(id) => {

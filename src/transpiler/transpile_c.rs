@@ -164,6 +164,8 @@ impl Transpiler {
             SyntaxNode::StringLiteral(s) => Ok(format!("\"{}\"", s)),
             SyntaxNode::IntLiteral(n) => Ok(n.to_string()),
             SyntaxNode::Identifier(id) => Ok(id.to_owned()),
+            SyntaxNode::BoolLiteral(true) => Ok("true".to_owned()),
+            SyntaxNode::BoolLiteral(false) => Ok("false".to_owned()),
             SyntaxNode::Program(_) => panic!("Got program when I should not have!"),
             SyntaxNode::FunctionCall(func_id, args) => {
                 let args: Vec<String> = args.iter()

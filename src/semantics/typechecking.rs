@@ -37,6 +37,7 @@ impl TypeField {
                 Type::new("i32".to_owned(), false, vec![]).unwrap(),
                 Type::new("u32".to_owned(), false, vec![]).unwrap(),
                 Type::new("str".to_owned(), false, vec![]).unwrap(),
+                Type::new("bool".to_owned(), false, vec![]).unwrap(),
             ]
         }
     }
@@ -138,6 +139,14 @@ pub fn get_expr_type(expr: &SyntaxTree) -> Result<TypeField, Box<dyn Error>> {
             type_field.add(Type::new(String::from("str"), false, vec![])?);
             Ok(type_field)
         },
+
+        SyntaxNode::BoolLiteral(_) => {
+            let mut type_field = TypeField::new();
+            type_field.clear();
+            type_field.add(Type::new(String::from("bool"), false, vec![])?);
+            Ok(type_field)
+        }
+
         _ => todo!()
     }
 }

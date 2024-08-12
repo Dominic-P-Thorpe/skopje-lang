@@ -360,6 +360,8 @@ impl Scanner {
                             "while" => return Ok(TokenType::WhileKeyword),
                             "let" => return Ok(TokenType::LetKeyword),
                             "do" => return Ok(TokenType::DoKeyword),
+                            "true" => return Ok(TokenType::BoolLiteral(true)),
+                            "false" => return Ok(TokenType::BoolLiteral(false)),
                             // is not a keyword, and therefore is an identifier
                             _ => return Ok(TokenType::Identifier(token_text.to_owned()))
                         }
