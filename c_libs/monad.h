@@ -18,7 +18,8 @@ class IOMonad {
     public:
         static IOMonad<T> lift(T value);
         T bind();
-        void arrow(T func);
+        IOMonad<T> arrow(T func);
+        void add_action(T action);
 };
 
 
@@ -49,8 +50,16 @@ T IOMonad<T>::bind() {
 
 
 template <typename T>
-void IOMonad<T>::arrow(T func) {
-    this->action.push_back(func);
+void IOMonad<T>::add_action(T action) {
+    this->action.push_back(action);
+}
+
+
+template <typename T>
+IOMonad<T> IOMonad<T>::arrow(T func) {
+    IOMonad<T> new_monad = IOMonad<T>(this->value);
+    new_monad.add_action(func);
+    return new_monad;
 }
 
 

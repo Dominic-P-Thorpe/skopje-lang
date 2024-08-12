@@ -150,7 +150,7 @@ impl Transpiler {
                 // arrow operation cannot be handled in the same way as primitive operations found
                 // in C++ natively
                 if op.as_str() == "->" {
-                    return Ok(format!("{}.arrow({})", self.transpile_c_tree(l, indent)?, self.transpile_c_tree(r, indent)?));
+                    return Ok(format!("{}.arrow({}.bind())", self.transpile_c_tree(l, indent)?, self.transpile_c_tree(r, indent)?));
                 }
                 
                 Ok(format!("{} {} {}", self.transpile_c_tree(l, indent)?, op, self.transpile_c_tree(l, indent)?))
