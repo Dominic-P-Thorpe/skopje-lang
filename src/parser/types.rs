@@ -71,7 +71,6 @@ impl Type {
     pub fn as_ctype_str(&self) -> String {
         let basic_type_str = self.basic_type.as_ctype_str().to_owned();
         if self.monadic {
-            println!("{:?}", self.generics.get(0).unwrap());
             return format!("{}<{}(*)()>", basic_type_str, self.generics.get(0).unwrap().as_ctype_str());
         }
 
