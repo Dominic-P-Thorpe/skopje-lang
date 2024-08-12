@@ -2,9 +2,9 @@
 Cargo.lock
 *.skj
 *.exe
-*.c
+*.cpp
 *.h
-!c_libs/*.c
+!c_libs/*.cpp
 !c_libs/*.h
 c_libs/*.gch
 c_libs/test.cpp

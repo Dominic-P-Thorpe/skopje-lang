@@ -59,9 +59,10 @@ impl Transpiler {
 
 
     pub fn transpile_c(&mut self) -> Result<(), Box<dyn Error>> {
-        self.file.write(b"#include<stdlib.h>\n")?;
-        self.file.write(b"#include<stdio.h>\n")?;
-        self.file.write(b"#include<stdint.h>\n\n")?;
+        self.file.write(b"#include <stdlib.h>\n")?;
+        self.file.write(b"#include <stdio.h>\n")?;
+        self.file.write(b"#include <stdint.h>\n")?;
+        self.file.write(b"#include \"c_libs/monad.h\"\n\n")?;
 
         if let SyntaxNode::Program(statements) = &self.ast.node {
             let mut statements_text: String = String::new();
@@ -70,6 +71,7 @@ impl Transpiler {
             }
 
             self.file.write(statements_text.as_bytes())?;
+            self.file.write(b"int main() {\n\t__special__main();\n\treturn 1;\n}\n\n")?;
             return Ok(());
         } 
 
@@ -89,7 +91,13 @@ impl Transpiler {
                                     .map(|s| Transpiler::transpile_c_tree(s, indent + 1).unwrap())
                                     .collect::<Vec<String>>()
                                     .join("\n");
-                Ok("\n".to_owned() + &return_type_text.to_string() + " " + name + "(" + &args_string + ")" + " {\n" + &body_text + "\n}\n\n")
+                
+                // main function is a special case as it must have the return type of "int"
+                if name.as_str() == "main" {
+                    return Ok(format!("\nint __special__main() {{\n{} \n}}\n\n", body_text));
+                }
+
+                Ok(format!("\n{} {}({}) {{\n{} \n}}\n\n", return_type_text, name, args_string, body_text))
             }
 
             SyntaxNode::ReturnStmt(body) => {
