@@ -29,6 +29,7 @@ impl error::Error for LexingError {}
 pub enum ParsingError {
     UnexpectedToken(Token),
     MissingSemicolon(u64),
+    InvalidTypeName(String)
 }
 
 
@@ -38,6 +39,7 @@ impl fmt::Display for ParsingError {
             Self::UnexpectedToken(token) => write!(f, "Unexpected token {} at line {}, col {}", 
                 format!("{:?}", token.token_type), token.line_number, token.col_number + 1),
             Self::MissingSemicolon(line) => write!(f, "Missing semicolon on line {}", line),
+            Self::InvalidTypeName(name) => write!(f, "{} is not a valid type name", name)
         }
     }
 }

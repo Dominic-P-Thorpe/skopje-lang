@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
+use std::error::Error;
 
-use super::{errors::ParsingError, token::*};
+use super::{errors::ParsingError, token::*, types::Type};
 
 
 macro_rules! parse_binary_operator {
@@ -34,23 +35,6 @@ macro_rules! parse_binary_operator {
 }
 
 
-
-/// Encodes a type, including the dependencies and linearity, of a value in Skopje. 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Type {
-    pub basic_type: String,
-    pub dependencies: Vec<()>,
-    pub linear: bool
-}
-
-
-impl Type {
-    fn new(basic_type: String, linear: bool) -> Self {
-        Type { basic_type, dependencies: vec![], linear }
-    }
-}
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum SyntaxNode {
     Program(Vec<SyntaxTree>),
@@ -73,6 +57,7 @@ pub enum SyntaxNode {
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
+    MonadicExpr(Vec<SyntaxTree>),
     // function name, arguments
     FunctionCall(String, Vec<SyntaxTree>),
     FunctionCallStmt(String, Vec<SyntaxTree>),
@@ -115,9 +100,13 @@ pub struct Context {
 
 impl Context {
     pub fn new() -> Self {
+        let mut valid_identifiers: HashMap<String, (Type, usize)> = HashMap::new();
+        valid_identifiers.insert("print".to_owned(), (Type::new("void".to_owned(), false, vec![]).unwrap(), 0));
+        valid_identifiers.insert("readln".to_owned(), (Type::new("void".to_owned(), false, vec![]).unwrap(), 0));
+
         Context {
-            valid_identifiers: HashMap::new(),
-            context_window_id: 0
+            valid_identifiers,
+            context_window_id: 1
         }
     }
 
@@ -164,12 +153,12 @@ impl Parser {
     }
 
 
-    pub fn parse(&mut self) -> Result<SyntaxTree, ParsingError> {
+    pub fn parse(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let mut top_level_constructs: Vec<SyntaxTree> = vec![];
         while let Some(next_token) = self.tokens.pop_front() {
             match &next_token.token_type {
                 TokenType::FnKeyword => top_level_constructs.push(self.parse_function()?),
-                _ => return Err(ParsingError::UnexpectedToken(next_token))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
             }
         }
 
@@ -200,7 +189,7 @@ impl Parser {
     ///     }
     /// }
     /// ```
-    fn parse_function(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_function(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let id_token = self.tokens.pop_front().unwrap();
         if let TokenType::Identifier(id) = id_token.token_type {
             let open_paren = self.tokens.pop_front().unwrap();
@@ -211,25 +200,23 @@ impl Parser {
             let arrow = self.tokens.pop_front().unwrap();
             assert!(matches!(arrow.token_type, TokenType::Arrow));
 
-            let return_type = self.tokens.pop_front().unwrap();
-            if let TokenType::Identifier(return_type_id) = return_type.token_type {
-                let open_body = self.tokens.pop_front().unwrap();
-                assert!(matches!(open_body.token_type, TokenType::OpenCurly));
-                
-                let body = self.parse_stmt_block()?;
-                
-                let close_body = self.tokens.pop_front().unwrap();
-                assert!(matches!(close_body.token_type, TokenType::CloseCurly));
-                
-                return Ok(SyntaxTree::new(
-                    SyntaxNode::Function(id, params, Type::new(return_type_id, false), body)
-                ));
-            }
+            // TODO: make this work will all function types
+            let return_type = self.parse_type().unwrap();
 
-            return Err(ParsingError::UnexpectedToken(return_type));
+            let open_body = self.tokens.pop_front().unwrap();
+            assert!(matches!(open_body.token_type, TokenType::OpenCurly));
+            
+            let body = self.parse_stmt_block()?;
+            
+            let close_body = self.tokens.pop_front().unwrap();
+            assert!(matches!(close_body.token_type, TokenType::CloseCurly));
+            
+            return Ok(SyntaxTree::new(
+                SyntaxNode::Function(id, params, return_type, body)
+            ));
         }
 
-        Err(ParsingError::UnexpectedToken(id_token))
+        Err(Box::new(ParsingError::UnexpectedToken(id_token)))
     }
 
 
@@ -263,9 +250,10 @@ impl Parser {
                 _ => return Err(ParsingError::UnexpectedToken(next_token))
             }
 
+            // TODO: make this work with all param types
             let next_token = self.tokens.pop_front().unwrap();
             if let TokenType::Identifier(t) = next_token.token_type {
-                p_type = Type::new(t, false);
+                p_type = Type::new(t, false, vec![]).unwrap();
             } else {
                 return Err(ParsingError::UnexpectedToken(next_token));
             }
@@ -364,7 +352,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Colon));
 
-        let var_type = self.parse_type()?;
+        let var_type = self.parse_type().unwrap();
 
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Equal));
@@ -379,12 +367,47 @@ impl Parser {
     }
 
 
-    fn parse_type(&mut self) -> Result<Type, ParsingError> {
+    /// Parses a type from the current stream of tokens (excluding computational types)
+    /// 
+    /// Needs to support: 
+    ///  - basic types,
+    ///  - linear types,
+    ///  - monadic types,
+    ///  - structs,
+    ///  - enums,
+    ///  - tuples,
+    ///  - generics
+    fn parse_type(&mut self) -> Result<Type, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
-        match next_token.token_type {
-            TokenType::Identifier(id) => Ok(Type::new(id, false)),
-            _ => return Err(ParsingError::UnexpectedToken(next_token))
-        }
+        let basic_type = match next_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+        };
+
+        // check if there is a generic component
+        let generics: Vec<Type> = match self.tokens.get(0).unwrap().token_type {
+            TokenType::LeftArrow => {
+                self.tokens.pop_front().unwrap();
+
+                let mut generic_types: Vec<Type> = vec![];
+                while let Ok(t) = self.parse_type() {
+                    generic_types.push(t);
+
+                    let next_token = self.tokens.pop_front().unwrap();
+                    match next_token.token_type {
+                        TokenType::Comma => continue,
+                        TokenType::RightArrow => break,
+                        other => panic!("Expected , or >, got {:?}", other)
+                    }
+                }
+
+                generic_types
+            }
+
+            _ => vec![] // no generic
+        };
+
+        Ok(Type::new(basic_type, false, generics)?)
     }
 
 
@@ -513,7 +536,12 @@ impl Parser {
 
 
     fn parse_mult_div_modulo(&mut self) -> Result<SyntaxTree, ParsingError> {
-        parse_binary_operator!(self, parse_right_assoc_unary, Star => "*", FwdSlash => "/", Percent => "%")
+        parse_binary_operator!(self, parse_arrow, Star => "*", FwdSlash => "/", Percent => "%")
+    }
+
+
+    fn parse_arrow(&mut self) -> Result<SyntaxTree, ParsingError> {
+        parse_binary_operator!(self, parse_right_assoc_unary, Arrow => "->")
     }
 
 
@@ -585,6 +613,7 @@ impl Parser {
         match next_token.token_type {
             TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s))),
             TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n))),
+            TokenType::DoKeyword => self.parse_do_block(),
 
             TokenType::Identifier(id) => {
                 // check that the identifier is valid in this context
@@ -619,6 +648,25 @@ impl Parser {
 
             _ => Err(ParsingError::UnexpectedToken(next_token))
         }
+    }
+
+
+    /// Produces a monadic action such as `IO<()>` or `IO<str>`.
+    /// 
+    /// The value contained within a monad cannot be extracted from a monad outside of another
+    /// monad, as in Haskell, for example. This ensures that side effects, such as reading and
+    /// writing from standard I/O, are properly ordered and are not parallelized, causing problems
+    /// with out-of-order effects - this is why monads are never parallelized.
+    fn parse_do_block(&mut self) -> Result<SyntaxTree, ParsingError> {
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::OpenCurly));
+
+        let body = self.parse_stmt_block()?;
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+
+        Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(body)))
     }
 
 
