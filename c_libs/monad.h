@@ -10,7 +10,7 @@ template <typename T>
 class IOMonad {
     private:
         T value;
-        std::vector<std::function<T(T)>> action;
+        std::vector<T> action;
     
         IOMonad(T value);
 
@@ -18,7 +18,7 @@ class IOMonad {
     public:
         static IOMonad<T> lift(T value);
         T bind();
-        void arrow(T (*func)(T));
+        void arrow(T func);
 };
 
 
@@ -38,8 +38,10 @@ T IOMonad<T>::bind() {
         return this->value;
     
     T intermediate = this->value;
+    intermediate();
     for (uint32_t i = 0; i < this->action.size(); i++) {
-        intermediate = this->action[i](intermediate);
+        intermediate = this->action[i];
+        intermediate();
     }
     
     return intermediate;
@@ -47,7 +49,7 @@ T IOMonad<T>::bind() {
 
 
 template <typename T>
-void IOMonad<T>::arrow(T (*func)(T)) {
+void IOMonad<T>::arrow(T func) {
     this->action.push_back(func);
 }
 

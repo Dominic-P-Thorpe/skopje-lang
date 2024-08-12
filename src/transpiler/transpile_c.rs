@@ -101,6 +101,7 @@ impl Transpiler {
             // write all the auxilliary functions to the source file
             for func in &self.functions_source {
                 self.file.write(func.as_bytes())?;
+                self.file.write(b"\n\n")?;
             }
             self.file.write(b"\n\n")?; // add in some extra line spacing
             
@@ -145,8 +146,15 @@ impl Transpiler {
                 Ok(self.transpile_c_tree(cond, indent)? + " ? " 
                     + &self.transpile_c_tree(if_true, indent)? + " : " 
                     + &self.transpile_c_tree(if_false, indent)?),
-            SyntaxNode::BinaryOperation(op, l, r) => 
-                Ok(self.transpile_c_tree(l, indent)? + " " + op + " " + &self.transpile_c_tree(r, indent)?),
+            SyntaxNode::BinaryOperation(op, l, r) => {
+                // arrow operation cannot be handled in the same way as primitive operations found
+                // in C++ natively
+                if op.as_str() == "->" {
+                    return Ok(format!("{}.arrow({})", self.transpile_c_tree(l, indent)?, self.transpile_c_tree(r, indent)?));
+                }
+                
+                Ok(format!("{} {} {}", self.transpile_c_tree(l, indent)?, op, self.transpile_c_tree(l, indent)?))
+            }
             SyntaxNode::RightAssocUnaryOperation(op, r) => 
                 Ok(op.to_owned() + " " + &self.transpile_c_tree(r, indent)?),
             SyntaxNode::LeftAssocUnaryOperation(op, l) => 

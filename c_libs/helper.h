@@ -11,7 +11,7 @@
 
 /// Executes the return value of the given function if f is of type IOMonad<T>, otherwise just
 /// returns the return value 
-#define BIND_IF_MONAD(f) if (is_monad<decltype(f())>::value) {f().bind()();} else {f();}
+#define BIND_IF_MONAD(f) if (is_monad<decltype(f())>::value) {f().bind();} else {f();}
 
 /// @brief Returns true if the type param T is an `IOMonad`, and false otherwise 
 /// @tparam T The type param to check

@@ -536,7 +536,12 @@ impl Parser {
 
 
     fn parse_mult_div_modulo(&mut self) -> Result<SyntaxTree, ParsingError> {
-        parse_binary_operator!(self, parse_right_assoc_unary, Star => "*", FwdSlash => "/", Percent => "%")
+        parse_binary_operator!(self, parse_arrow, Star => "*", FwdSlash => "/", Percent => "%")
+    }
+
+
+    fn parse_arrow(&mut self) -> Result<SyntaxTree, ParsingError> {
+        parse_binary_operator!(self, parse_right_assoc_unary, Arrow => "->")
     }
 
 
