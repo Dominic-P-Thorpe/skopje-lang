@@ -1,6 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 
+use crate::semantics::typechecking::{TypeField, get_expr_type};
+
 use super::{errors::ParsingError, token::*, types::Type};
 
 
@@ -358,6 +360,10 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::Equal));
 
         let expression: SyntaxTree = self.parse_expression()?;
+        let expr_type: TypeField = get_expr_type(&expression).unwrap();
+        if !expr_type.contains(&var_type) {
+            panic!("Mismatch between variable and expression types!");
+        }
 
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Semicolon));

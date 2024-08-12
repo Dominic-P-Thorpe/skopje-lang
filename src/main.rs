@@ -3,6 +3,7 @@
 //! The main crate for the compiler of the Skopje programming language.
 mod parser;
 mod transpiler;
+mod semantics;
 
 use transpiler::transpile_c::Transpiler;
 

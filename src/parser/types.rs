@@ -39,7 +39,7 @@ impl SimpleType {
 
 
 /// Encodes a type, including the dependencies and linearity, of a value in Skopje. 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Type {
     pub basic_type: SimpleType,
     pub monadic: bool,
