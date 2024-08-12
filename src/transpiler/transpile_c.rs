@@ -172,8 +172,10 @@ impl Transpiler {
                 let args: Vec<String> = args.iter()
                                             .map(|arg| self.transpile_c_tree(arg, indent).unwrap())
                                             .collect();
-                if func_id == &String::from("print") {
+                if func_id == "print" {
                     return Ok(format!("{}printf({});", "    ".repeat(indent), args.first().unwrap()));
+                } else if func_id == "readln" {
+                    return Ok(format!("{}readln({});", "    ".repeat(indent), args.first().unwrap()));
                 }
 
                 Ok(format!("{}({});", "    ".repeat(indent), args.join(", ")))

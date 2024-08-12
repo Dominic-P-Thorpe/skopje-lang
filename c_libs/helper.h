@@ -3,9 +3,10 @@
 
 #include <stdlib.h>
 #include <stdint.h>
-#include <stdio.h>
+#include <iostream>
 #include <functional>
 #include <type_traits>
+#include <string>
 #include "monad.h"
 
 /// Executes the return value of the given function if f is of type IOMonad<T>, otherwise just
@@ -21,5 +22,16 @@ struct is_monad : std::false_type {};
 /// @tparam T The type param to check
 template <typename T>
 struct is_monad<IOMonad<T>> : std::true_type {};
+
+/// @brief Prints the given message and then takes input until the user presses enter
+/// @param msg The message to print to standard I/O (no newline added automatically)
+/// @return The user's response from standard I/O
+std::string readln(std::string msg) {
+    std::cout << msg;
+    std::string input;
+    std::cin >> input;
+
+    return input; 
+}
 
 #endif

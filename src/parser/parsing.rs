@@ -100,9 +100,13 @@ pub struct Context {
 
 impl Context {
     pub fn new() -> Self {
+        let mut valid_identifiers: HashMap<String, (Type, usize)> = HashMap::new();
+        valid_identifiers.insert("print".to_owned(), (Type::new("void".to_owned(), false, vec![]).unwrap(), 0));
+        valid_identifiers.insert("readln".to_owned(), (Type::new("void".to_owned(), false, vec![]).unwrap(), 0));
+
         Context {
-            valid_identifiers: HashMap::new(),
-            context_window_id: 0
+            valid_identifiers,
+            context_window_id: 1
         }
     }
 

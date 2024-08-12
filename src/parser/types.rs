@@ -31,7 +31,7 @@ impl SimpleType {
             Self::Void => "void",
             Self::I32 => "int32_t",
             Self::U32 => "uint32_t",
-            Self::Str => "char*",
+            Self::Str => "std::string",
             Self::IOMonad => "IOMonad"
         }
     }
