@@ -333,6 +333,10 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::Equal));
 
         let expr = self.parse_expression()?;
+        let expr_type: TypeField = get_expr_type(&expr).unwrap();
+        if !expr_type.contains(&self.context.valid_identifiers.get(&id).unwrap().0) {
+            panic!("Mismatch between variable and expression types!");
+        }
 
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Semicolon));
