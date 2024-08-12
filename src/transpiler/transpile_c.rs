@@ -105,6 +105,7 @@ impl Transpiler {
             for func in &self.functions_source {
                 self.file.write(func.as_bytes())?;
             }
+            self.file.write(b"\n\n")?;
             
             self.file.write(statements_text.as_bytes())?;
             self.file.write(b"int main() {\n\t__special__main();\n\treturn 1;\n}\n\n")?;
@@ -119,10 +120,10 @@ impl Transpiler {
         match &tree.node {
             SyntaxNode::Function(name, args, return_type, body) => {
                 let args_string = args.iter()
-                                      .map(|(p_id, p_type)| format!("{} {}", Transpiler::convert_type_to_ctype(&p_type.basic_type), p_id))
+                                      .map(|(p_id, p_type)| format!("{} {}", p_type.basic_type.as_ctype_str(), p_id))
                                       .collect::<Vec<String>>()
                                       .join(", ");
-                let return_type_text = Transpiler::convert_type_to_ctype(&return_type.basic_type);
+                let return_type_text = return_type.as_ctype_str();
                 let body_text = body.iter()
                                     .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
                                     .collect::<Vec<String>>()
@@ -131,7 +132,7 @@ impl Transpiler {
                 // main function is a special case as it must have the return type of "int", so we
                 // convert this function's name to a different name (__special__main())
                 if name.as_str() == "main" {
-                    return Ok(format!("\nint __special__main() {{\n{} \n}}\n\n", body_text));
+                    return Ok(format!("\n{} __special__main() {{\n{} \n}}\n\n", return_type_text, body_text));
                 }
 
                 Ok(format!("\n{} {}({}) {{\n{} \n}}\n\n", return_type_text, name, args_string, body_text))
@@ -222,7 +223,7 @@ impl Transpiler {
             SyntaxNode::LetStmt(id, var_type, expr) => Ok(format!(
                 "{}{} {} = {};",
                 "    ".repeat(indent), 
-                Transpiler::convert_type_to_ctype(&var_type.basic_type), 
+                var_type.as_ctype_str(), 
                 id, 
                 self.transpile_c_tree(expr, indent)?
             )),
@@ -245,17 +246,6 @@ impl Transpiler {
                 
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
             }
-        }
-    }
-
-
-    /// Converts Skopje types to their closest equivalents in C using the stdint.h library.
-    fn convert_type_to_ctype(original: &str) -> &str {
-        match original {
-            "i32" => "int32_t",
-            "u32" => "uint32_t",
-            "str" => "char*",
-            _ => panic!("Unrecognized type")
         }
     }
 }

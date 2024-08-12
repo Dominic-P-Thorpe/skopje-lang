@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
+use std::error::Error;
 
-use super::{errors::ParsingError, token::*};
+use super::{errors::ParsingError, token::*, types::Type};
 
 
 macro_rules! parse_binary_operator {
@@ -31,23 +32,6 @@ macro_rules! parse_binary_operator {
 
         Ok(root)
     }};
-}
-
-
-
-/// Encodes a type, including the dependencies and linearity, of a value in Skopje. 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Type {
-    pub basic_type: String,
-    pub dependencies: Vec<()>,
-    pub linear: bool
-}
-
-
-impl Type {
-    fn new(basic_type: String, linear: bool) -> Self {
-        Type { basic_type, dependencies: vec![], linear }
-    }
 }
 
 
@@ -165,12 +149,12 @@ impl Parser {
     }
 
 
-    pub fn parse(&mut self) -> Result<SyntaxTree, ParsingError> {
+    pub fn parse(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let mut top_level_constructs: Vec<SyntaxTree> = vec![];
         while let Some(next_token) = self.tokens.pop_front() {
             match &next_token.token_type {
                 TokenType::FnKeyword => top_level_constructs.push(self.parse_function()?),
-                _ => return Err(ParsingError::UnexpectedToken(next_token))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
             }
         }
 
@@ -201,7 +185,7 @@ impl Parser {
     ///     }
     /// }
     /// ```
-    fn parse_function(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_function(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let id_token = self.tokens.pop_front().unwrap();
         if let TokenType::Identifier(id) = id_token.token_type {
             let open_paren = self.tokens.pop_front().unwrap();
@@ -212,25 +196,23 @@ impl Parser {
             let arrow = self.tokens.pop_front().unwrap();
             assert!(matches!(arrow.token_type, TokenType::Arrow));
 
-            let return_type = self.tokens.pop_front().unwrap();
-            if let TokenType::Identifier(return_type_id) = return_type.token_type {
-                let open_body = self.tokens.pop_front().unwrap();
-                assert!(matches!(open_body.token_type, TokenType::OpenCurly));
-                
-                let body = self.parse_stmt_block()?;
-                
-                let close_body = self.tokens.pop_front().unwrap();
-                assert!(matches!(close_body.token_type, TokenType::CloseCurly));
-                
-                return Ok(SyntaxTree::new(
-                    SyntaxNode::Function(id, params, Type::new(return_type_id, false), body)
-                ));
-            }
+            // TODO: make this work will all function types
+            let return_type = self.parse_type().unwrap();
 
-            return Err(ParsingError::UnexpectedToken(return_type));
+            let open_body = self.tokens.pop_front().unwrap();
+            assert!(matches!(open_body.token_type, TokenType::OpenCurly));
+            
+            let body = self.parse_stmt_block()?;
+            
+            let close_body = self.tokens.pop_front().unwrap();
+            assert!(matches!(close_body.token_type, TokenType::CloseCurly));
+            
+            return Ok(SyntaxTree::new(
+                SyntaxNode::Function(id, params, return_type, body)
+            ));
         }
 
-        Err(ParsingError::UnexpectedToken(id_token))
+        Err(Box::new(ParsingError::UnexpectedToken(id_token)))
     }
 
 
@@ -264,9 +246,10 @@ impl Parser {
                 _ => return Err(ParsingError::UnexpectedToken(next_token))
             }
 
+            // TODO: make this work with all param types
             let next_token = self.tokens.pop_front().unwrap();
             if let TokenType::Identifier(t) = next_token.token_type {
-                p_type = Type::new(t, false);
+                p_type = Type::new(t, false, vec![]).unwrap();
             } else {
                 return Err(ParsingError::UnexpectedToken(next_token));
             }
@@ -365,7 +348,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Colon));
 
-        let var_type = self.parse_type()?;
+        let var_type = self.parse_type().unwrap();
 
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Equal));
@@ -380,12 +363,47 @@ impl Parser {
     }
 
 
-    fn parse_type(&mut self) -> Result<Type, ParsingError> {
+    /// Parses a type from the current stream of tokens (excluding computational types)
+    /// 
+    /// Needs to support: 
+    ///  - basic types,
+    ///  - linear types,
+    ///  - monadic types,
+    ///  - structs,
+    ///  - enums,
+    ///  - tuples,
+    ///  - generics
+    fn parse_type(&mut self) -> Result<Type, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
-        match next_token.token_type {
-            TokenType::Identifier(id) => Ok(Type::new(id, false)),
-            _ => return Err(ParsingError::UnexpectedToken(next_token))
-        }
+        let basic_type = match next_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+        };
+
+        // check if there is a generic component
+        let generics: Vec<Type> = match self.tokens.get(0).unwrap().token_type {
+            TokenType::LeftArrow => {
+                self.tokens.pop_front().unwrap();
+
+                let mut generic_types: Vec<Type> = vec![];
+                while let Ok(t) = self.parse_type() {
+                    generic_types.push(t);
+
+                    let next_token = self.tokens.pop_front().unwrap();
+                    match next_token.token_type {
+                        TokenType::Comma => continue,
+                        TokenType::RightArrow => break,
+                        other => panic!("Expected , or >, got {:?}", other)
+                    }
+                }
+
+                generic_types
+            }
+
+            _ => vec![] // no generic
+        };
+
+        Ok(Type::new(basic_type, false, generics)?)
     }
 
 
