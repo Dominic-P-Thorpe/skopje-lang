@@ -715,13 +715,22 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::OpenParen));
 
         let cond = self.parse_expression()?;
+        if !get_expr_type(&cond).unwrap().contains(&Type::new("bool".to_owned(), false, vec![]).unwrap()) {
+            panic!("If statement's condition must be of type bool!");
+        }
 
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::CloseParen));
 
         let next_token = self.tokens.pop_front().unwrap();
         let if_body = match next_token.token_type {
-            TokenType::OpenCurly => self.parse_stmt_block()?,
+            TokenType::OpenCurly => {
+                let result = self.parse_stmt_block()?;
+                let next_token = self.tokens.pop_front().unwrap();
+                assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+                result
+            },
+
             _ => {
                 self.tokens.push_front(next_token);
                 vec![self.parse_statement()?]
@@ -733,7 +742,13 @@ impl Parser {
             TokenType::ElseKeyword => {
                 let next_token = self.tokens.pop_front().unwrap();
                 Some(match next_token.token_type {
-                    TokenType::OpenCurly => self.parse_stmt_block()?,
+                    TokenType::OpenCurly => {
+                        let result = self.parse_stmt_block()?;
+                        let next_token = self.tokens.pop_front().unwrap();
+                        assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+                        result
+                    },
+
                     _ => {
                         self.tokens.push_front(next_token);
                         vec![self.parse_statement()?]
