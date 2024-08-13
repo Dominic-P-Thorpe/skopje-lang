@@ -8,6 +8,8 @@ pub enum SimpleType {
     U32,
     Str,
     Void,
+    Bool,
+    Function(Box<Type>, Vec<Type>), // return type, vec of params
     IOMonad
 }
 
@@ -19,6 +21,7 @@ impl SimpleType {
             "u32" => Self::U32,
             "str" => Self::Str,
             "void" => Self::Void,
+            "bool" => Self::Bool,
             "IO" => Self::IOMonad,
             name => return Err(Box::new(ParsingError::InvalidTypeName(name.to_owned())))
         })
@@ -26,20 +29,26 @@ impl SimpleType {
 
 
     /// Converts Skopje types to their closest equivalents in C using the stdint.h library.
-    pub fn as_ctype_str(&self) -> &str {
+    pub fn as_ctype_str(&self) -> String {
         match self {
-            Self::Void => "void",
-            Self::I32 => "int32_t",
-            Self::U32 => "uint32_t",
-            Self::Str => "std::string",
-            Self::IOMonad => "IOMonad"
+            Self::Void => String::from("void"),
+            Self::I32 => String::from("int32_t"),
+            Self::U32 => String::from("uint32_t"),
+            Self::Str => String::from("std::string"),
+            Self::Bool => String::from("bool"),
+            Self::IOMonad => String::from("IOMonad"),
+            Self::Function(return_type, params) => format!(
+                "std::function<{}({})>",
+                return_type.as_ctype_str(),
+                params.iter().map(|p| p.as_ctype_str()).collect::<Vec<String>>().join(", ")
+            )
         }
     }
 }
 
 
 /// Encodes a type, including the dependencies and linearity, of a value in Skopje. 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Type {
     pub basic_type: SimpleType,
     pub monadic: bool,
@@ -50,7 +59,7 @@ pub struct Type {
 
 
 impl Type {
-    pub fn new(basic_type: String, linear: bool, generics: Vec<Type>) -> Result<Self, Box<dyn Error>> {
+    pub fn new_str(basic_type: String, linear: bool, generics: Vec<Type>) -> Result<Self, Box<dyn Error>> {
         let basic_type = SimpleType::from_string(&basic_type)?;
         let monadic: bool = match basic_type {
             SimpleType::IOMonad => true,
@@ -62,6 +71,22 @@ impl Type {
             basic_type,
             monadic,
             linear,
+            generics
+        })
+    }
+
+
+    pub fn new(basic_type: SimpleType, linear: bool, generics: Vec<Type>) -> Result<Self, Box<dyn Error>> {
+        let monadic: bool = match basic_type {
+            SimpleType::IOMonad => true,
+            _ => false
+        };
+
+        Ok(Type {
+            dependencies: vec![], 
+            basic_type, 
+            monadic, 
+            linear, 
             generics
         })
     }
