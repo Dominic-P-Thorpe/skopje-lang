@@ -9,6 +9,7 @@ use std::error::Error;
 
 use crate::parser::parsing::{SyntaxNode, SyntaxTree};
 use crate::parser::types::{Type, SimpleType};
+use crate::Context;
 
 use super::errors::TypeError;
 
@@ -21,7 +22,7 @@ use super::errors::TypeError;
 /// ```
 /// let type_field: TypeField = TypeField::new();
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypeField {
     valid_types: Vec<Type>
 }
@@ -119,12 +120,18 @@ impl TypeField {
 }
 
 
-pub fn get_expr_type(expr: &SyntaxTree) -> Result<TypeField, Box<dyn Error>> {
+pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<TypeField, Box<dyn Error>> {
     match &expr.node {
         SyntaxNode::BinaryOperation(op, l, r) => get_binary_operation_type(
             op.to_string(), 
-            get_expr_type(&*l)?, 
-            get_expr_type(&*r)?
+            get_expr_type(&*l, context)?, 
+            get_expr_type(&*r, context)?
+        ),
+
+        SyntaxNode::LeftAssocUnaryOperation(op, arg)
+        | SyntaxNode::RightAssocUnaryOperation(op, arg) => get_unary_operation_type(
+            op.to_string(), 
+            get_expr_type(&*arg, context)?
         ),
 
         SyntaxNode::IntLiteral(_) => {
@@ -146,6 +153,36 @@ pub fn get_expr_type(expr: &SyntaxTree) -> Result<TypeField, Box<dyn Error>> {
             type_field.add(Type::new(String::from("bool"), false, vec![])?);
             Ok(type_field)
         }
+
+        SyntaxNode::Identifier(id) => {
+            let mut type_field = TypeField::new();
+            type_field.clear();
+            type_field.add(context.valid_identifiers.get(id).unwrap().0.clone());
+            Ok(type_field)
+        }
+
+        _ => todo!()
+    }
+}
+
+
+fn get_unary_operation_type(op: String, arg: TypeField) -> Result<TypeField, Box<dyn Error>> {
+    match op.as_str() {
+        "-" | "+" | "~" | "++" | "--" => {
+            arg.clone().restrict_numeric();
+            Ok(arg)
+        },
+
+        "!" => {
+            let mut valid_field = TypeField::new();
+            valid_field.clear();
+            valid_field.add(Type::new("bool".to_owned(), false, vec![]).unwrap());
+
+            match arg.contains(&Type::new("bool".to_owned(), false, vec![]).unwrap()) {
+                true => Ok(arg.clone()),
+                false => Err(Box::new(TypeError::new(valid_field, arg)))
+            }
+        },
 
         _ => todo!()
     }

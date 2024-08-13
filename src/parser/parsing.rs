@@ -334,7 +334,7 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::Equal));
 
         let expr = self.parse_expression()?;
-        let expr_type: TypeField = get_expr_type(&expr).unwrap();
+        let expr_type: TypeField = get_expr_type(&expr, &self.context).unwrap();
         if !expr_type.contains(&self.context.valid_identifiers.get(&id).unwrap().0) {
             panic!("Mismatch between variable and expression types!");
         }
@@ -365,7 +365,7 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::Equal));
 
         let expression: SyntaxTree = self.parse_expression()?;
-        let expr_type: TypeField = get_expr_type(&expression).unwrap();
+        let expr_type: TypeField = get_expr_type(&expression, &self.context).unwrap();
         if !expr_type.contains(&var_type) {
             panic!("Mismatch between variable and expression types!");
         }
@@ -715,7 +715,7 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::OpenParen));
 
         let cond = self.parse_expression()?;
-        if !get_expr_type(&cond).unwrap().contains(&Type::new("bool".to_owned(), false, vec![]).unwrap()) {
+        if !get_expr_type(&cond, &self.context).unwrap().contains(&Type::new("bool".to_owned(), false, vec![]).unwrap()) {
             panic!("If statement's condition must be of type bool!");
         }
 

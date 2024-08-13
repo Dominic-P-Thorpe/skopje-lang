@@ -326,7 +326,7 @@ impl Scanner {
             }
 
             "|" => {
-                if let Some('=') = self.peek(line, 0) {
+                if let Some('|') = self.peek(line, 0) {
                     self.advance();
                     return Ok(TokenType::DoublePipe);
                 } else {
