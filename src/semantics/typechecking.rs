@@ -163,9 +163,30 @@ fn get_binary_operation_type(op: String, l_type: TypeField, r_type: TypeField) -
             }
         }
 
-        "&&" | "||" => unimplemented!("Have not yet implemented booleans!"),
-        ">" | "<" | ">=" | "<=" => unimplemented!("Have not yet implemented booleans!"),
-        "==" | "!=" => unimplemented!("Have not yet implemented booleans!"),
+        // two boolean arguments and a boolean output
+        "&&" | "||" => {
+            let mut valid_field = TypeField::new();
+            valid_field.clear();
+            valid_field.add(Type::new("bool".to_owned(), false, vec![]).unwrap());
+
+            match intersection.contains(&Type::new("bool".to_owned(), false, vec![]).unwrap()) {
+                true => Ok(intersection),
+                false => Err(Box::new(TypeError::new(valid_field, intersection)))
+            }
+        },
+
+        ">" | "<" | ">=" | "<=" => {
+            let mut valid_field = TypeField::new();
+            valid_field.clear();
+            valid_field.add(Type::new("bool".to_owned(), false, vec![]).unwrap());
+
+            match intersection.contains_numeric() {
+                true => Ok(valid_field),
+                false => Err(Box::new(TypeError::new(TypeField::new_numeric(), intersection)))
+            }
+        },
+
+        "==" | "!=" => unimplemented!("Have not yet implemented equality!"),
         _ => panic!("Did not recognise operator {}", op)
     }
 }
