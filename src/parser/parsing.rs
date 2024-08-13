@@ -3,6 +3,7 @@ use std::error::Error;
 
 use crate::semantics::typechecking::{TypeField, get_expr_type};
 
+use super::types::SimpleType;
 use super::{errors::ParsingError, token::*, types::Type};
 
 
@@ -104,8 +105,8 @@ pub struct Context {
 impl Context {
     pub fn new() -> Self {
         let mut valid_identifiers: HashMap<String, (Type, usize)> = HashMap::new();
-        valid_identifiers.insert("print".to_owned(), (Type::new("void".to_owned(), false, vec![]).unwrap(), 0));
-        valid_identifiers.insert("readln".to_owned(), (Type::new("void".to_owned(), false, vec![]).unwrap(), 0));
+        valid_identifiers.insert("print".to_owned(), (Type::new(SimpleType::Void, false, vec![]).unwrap(), 0));
+        valid_identifiers.insert("readln".to_owned(), (Type::new(SimpleType::Void, false, vec![]).unwrap(), 0));
 
         Context {
             valid_identifiers,
@@ -131,6 +132,22 @@ impl Context {
                                      .filter(|(_, (_, window_id))| window_id != context_window)
                                      .map(|(k, (t, w))| (k.clone(), (t.clone(), *w)))
                                      .collect();
+    }
+
+
+    /// Checks if the passed identifier is a valid function in the given context and returns the
+    /// type of the function if it is, and `None` if it isn't.
+    pub fn verify_function(&self, func_name: &String) -> Option<Type> {
+        match self.valid_identifiers.get(func_name) {
+            Some((func_type, _)) => {
+                match func_type.basic_type {
+                    SimpleType::Function(_, _) => Some(func_type.clone()),
+                    _ => None
+                }
+            }
+
+            None => None
+        }
     }
 }
 
@@ -203,7 +220,6 @@ impl Parser {
             let arrow = self.tokens.pop_front().unwrap();
             assert!(matches!(arrow.token_type, TokenType::Arrow));
 
-            // TODO: make this work will all function types
             let return_type = self.parse_type().unwrap();
 
             let open_body = self.tokens.pop_front().unwrap();
@@ -214,6 +230,12 @@ impl Parser {
             let close_body = self.tokens.pop_front().unwrap();
             assert!(matches!(close_body.token_type, TokenType::CloseCurly));
             
+            // add this function to the valid functions available in this context
+            let func_type = Type::new(SimpleType::Function(
+                Box::new(return_type.clone()), params.iter().map(|(_, t)| t).cloned().collect::<Vec<Type>>()
+            ), false, vec![])?;
+            self.context.add_var(id.clone(), func_type);
+
             return Ok(SyntaxTree::new(
                 SyntaxNode::Function(id, params, return_type, body)
             ));
@@ -256,7 +278,7 @@ impl Parser {
             // TODO: make this work with all param types
             let next_token = self.tokens.pop_front().unwrap();
             if let TokenType::Identifier(t) = next_token.token_type {
-                p_type = Type::new(t, false, vec![]).unwrap();
+                p_type = Type::new_str(t, false, vec![]).unwrap();
             } else {
                 return Err(ParsingError::UnexpectedToken(next_token));
             }
@@ -418,7 +440,7 @@ impl Parser {
             _ => vec![] // no generic
         };
 
-        Ok(Type::new(basic_type, false, generics)?)
+        Ok(Type::new_str(basic_type, false, generics)?)
     }
 
 
@@ -443,11 +465,19 @@ impl Parser {
 
 
     fn parse_func_call_stmt(&mut self, id: String) -> Result<SyntaxTree, ParsingError> {
+        // check that the function exists in this context
+        match self.context.verify_function(&id) {
+            Some(_) => (),
+            None => panic!("Identifier {} is not valid in this context", id)
+        }
+
         let next_token = self.tokens.pop_front().unwrap();
         if let TokenType::OpenParen = next_token.token_type {
             let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
             if let TokenType::Semicolon = self.tokens.pop_front().unwrap().token_type {
-                return Ok(SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments)));
+                let expr = SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments));
+                get_expr_type(&expr, &self.context).unwrap();
+                return Ok(expr);
             }
         }
         
@@ -715,7 +745,7 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::OpenParen));
 
         let cond = self.parse_expression()?;
-        if !get_expr_type(&cond, &self.context).unwrap().contains(&Type::new("bool".to_owned(), false, vec![]).unwrap()) {
+        if !get_expr_type(&cond, &self.context).unwrap().contains(&Type::new(SimpleType::Bool, false, vec![]).unwrap()) {
             panic!("If statement's condition must be of type bool!");
         }
 

@@ -35,10 +35,10 @@ impl TypeField {
     pub fn new() -> Self {
         TypeField {
             valid_types: vec![
-                Type::new("i32".to_owned(), false, vec![]).unwrap(),
-                Type::new("u32".to_owned(), false, vec![]).unwrap(),
-                Type::new("str".to_owned(), false, vec![]).unwrap(),
-                Type::new("bool".to_owned(), false, vec![]).unwrap(),
+                Type::new(SimpleType::I32, false, vec![]).unwrap(),
+                Type::new(SimpleType::U32, false, vec![]).unwrap(),
+                Type::new(SimpleType::Str, false, vec![]).unwrap(),
+                Type::new(SimpleType::Bool, false, vec![]).unwrap(),
             ]
         }
     }
@@ -50,6 +50,13 @@ impl TypeField {
         let mut field = Self::new();
         field.restrict_numeric();
         field
+    }
+
+
+    pub fn from_type(t: Type) -> Self {
+        TypeField {
+            valid_types: vec![t]
+        }
     }
 
 
@@ -143,14 +150,14 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<TypeField, 
         SyntaxNode::StringLiteral(_) => {
             let mut type_field = TypeField::new();
             type_field.clear();
-            type_field.add(Type::new(String::from("str"), false, vec![])?);
+            type_field.add(Type::new(SimpleType::Str, false, vec![])?);
             Ok(type_field)
         },
 
         SyntaxNode::BoolLiteral(_) => {
             let mut type_field = TypeField::new();
             type_field.clear();
-            type_field.add(Type::new(String::from("bool"), false, vec![])?);
+            type_field.add(Type::new(SimpleType::Bool, false, vec![])?);
             Ok(type_field)
         }
 
@@ -159,6 +166,33 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<TypeField, 
             type_field.clear();
             type_field.add(context.valid_identifiers.get(id).unwrap().0.clone());
             Ok(type_field)
+        }
+
+        SyntaxNode::FunctionCall(id, args) 
+        | SyntaxNode::FunctionCallStmt(id, args)=> {
+            let (func_return_type, param_types) = match context.verify_function(&id) {
+                Some(f) => match f.basic_type {
+                    SimpleType::Function(rt, params) => (*rt, params),
+                    other => panic!("Expected function, got {:?}", other)
+                },
+                None => panic!("Identifier {} is not valid in this context", id)
+            };
+
+            // check that there are the correct number of arguments for the given function
+            if param_types.len() != args.len() {
+                panic!("Expected {} arguments for function {}, got {}", param_types.len(), id, args.len())
+            }
+
+            // verify that the parameters are all of the same type
+            for i in 0..param_types.len() {
+                let arg_field: TypeField = get_expr_type(args.get(i).unwrap(), context)?;
+                let param_type: &Type = param_types.get(i).unwrap();
+                if !arg_field.contains(param_type) {
+                    return Err(Box::new(TypeError::new(arg_field, TypeField::from_type(param_type.clone()))));
+                }
+            }
+
+            Ok(TypeField::from_type(func_return_type))
         }
 
         _ => todo!()
@@ -176,9 +210,9 @@ fn get_unary_operation_type(op: String, arg: TypeField) -> Result<TypeField, Box
         "!" => {
             let mut valid_field = TypeField::new();
             valid_field.clear();
-            valid_field.add(Type::new("bool".to_owned(), false, vec![]).unwrap());
+            valid_field.add(Type::new(SimpleType::Bool, false, vec![]).unwrap());
 
-            match arg.contains(&Type::new("bool".to_owned(), false, vec![]).unwrap()) {
+            match arg.contains(&Type::new(SimpleType::Bool, false, vec![]).unwrap()) {
                 true => Ok(arg.clone()),
                 false => Err(Box::new(TypeError::new(valid_field, arg)))
             }
@@ -204,9 +238,9 @@ fn get_binary_operation_type(op: String, l_type: TypeField, r_type: TypeField) -
         "&&" | "||" => {
             let mut valid_field = TypeField::new();
             valid_field.clear();
-            valid_field.add(Type::new("bool".to_owned(), false, vec![]).unwrap());
+            valid_field.add(Type::new(SimpleType::Bool, false, vec![]).unwrap());
 
-            match intersection.contains(&Type::new("bool".to_owned(), false, vec![]).unwrap()) {
+            match intersection.contains(&Type::new(SimpleType::Bool, false, vec![]).unwrap()) {
                 true => Ok(intersection),
                 false => Err(Box::new(TypeError::new(valid_field, intersection)))
             }
@@ -215,7 +249,7 @@ fn get_binary_operation_type(op: String, l_type: TypeField, r_type: TypeField) -
         ">" | "<" | ">=" | "<=" => {
             let mut valid_field = TypeField::new();
             valid_field.clear();
-            valid_field.add(Type::new("bool".to_owned(), false, vec![]).unwrap());
+            valid_field.add(Type::new(SimpleType::Bool, false, vec![]).unwrap());
 
             match intersection.contains_numeric() {
                 true => Ok(valid_field),
