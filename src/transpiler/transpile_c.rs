@@ -106,7 +106,7 @@ impl Transpiler {
             self.file.write(b"\n\n")?; // add in some extra line spacing
             
             self.file.write(statements_text.as_bytes())?;
-            self.file.write(b"int main() {\n\tBIND_IF_MONAD(__special__main);\n\treturn 1;\n}")?;
+            self.file.write(b"int main() {\n\tbind_if_monad(__special__main);\n\treturn 1;\n}")?;
             
             return Ok(());
         } 
