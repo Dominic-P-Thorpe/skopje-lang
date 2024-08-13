@@ -449,6 +449,9 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::OpenParen));
 
         let expr = self.parse_expression()?;
+        if !get_expr_type(&expr, &self.context).unwrap().contains(&Type::new(SimpleType::Bool, false, vec![]).unwrap()) {
+            panic!("If statement's condition must be of type bool!");
+        }
 
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::CloseParen));
