@@ -14,6 +14,8 @@ pub enum TokenType {
     CloseParen,
     OpenCurly,
     CloseCurly,
+    OpenSquare,
+    CloseSquare,
     Arrow,
     Semicolon,
     Plus,

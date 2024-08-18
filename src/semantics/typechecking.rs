@@ -34,6 +34,18 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
         SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id).unwrap().0.clone()),
         SyntaxNode::ParenExpr(expr) => get_expr_type(expr, context),
 
+        SyntaxNode::IndexingOperation(index, expr) => {
+            match get_expr_type(expr, context).unwrap().basic_type {
+                SimpleType::Tuple(types) => {
+                    if !is_constexpr(index) {
+                        panic!("Indexing operation on a tuple must have a constexpr index!");
+                    }
+                    Ok(types.get(fold_constexpr_index(index)).unwrap().clone())
+                }
+                t => panic!("Cannot use indexing operation on type {:?}", t)
+            }
+        }
+
         SyntaxNode::FunctionCall(id, args) 
         | SyntaxNode::FunctionCallStmt(id, args)=> {
             let (func_return_type, param_types) = match context.verify_function(&id) {
@@ -133,6 +145,31 @@ fn get_binary_operation_type(op: String, l_type: Type, r_type: Type) -> Result<T
 } 
 
 
+fn is_constexpr(expr: &SyntaxTree) -> bool {
+    match &expr.node {
+        SyntaxNode::BinaryOperation(_, l, r) => is_constexpr(&l.clone()) && is_constexpr(&r.clone()),
+        SyntaxNode::LeftAssocUnaryOperation(_, l) => is_constexpr(&l.clone()),
+        SyntaxNode::RightAssocUnaryOperation(_, r) => is_constexpr(&r.clone()),
+        SyntaxNode::ParenExpr(expr) => is_constexpr(&expr.clone()),
+        SyntaxNode::IndexingOperation(index, expr) => is_constexpr(&index.clone()) && is_constexpr(&expr.clone()),
+        SyntaxNode::TernaryExpression(c, t, f) => is_constexpr(&c.clone()) && is_constexpr(&t.clone()) && is_constexpr(&f.clone()),
+        SyntaxNode::IntLiteral(_) 
+        | SyntaxNode::BoolLiteral(_) 
+        | SyntaxNode::StringLiteral(_) 
+        | SyntaxNode::TupleLiteral(_) => true,
+        _ => false
+    }
+}
+
+
+fn fold_constexpr_index(expr: &SyntaxTree) -> usize {
+    match expr.node {
+        SyntaxNode::IntLiteral(i) => i as usize,
+        _ => panic!("Could not fold constexpr!")
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use crate::parser::parsing::Parser;
@@ -159,6 +196,15 @@ mod tests {
     #[should_panic]
     fn test_malformed_tuple() {
         let scanner = Scanner::new("tests/test_malformed_tuple.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_non_constexpr_tuple_index() {
+        let scanner = Scanner::new("tests/test_non_constexpr_tuple_index.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }

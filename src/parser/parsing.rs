@@ -57,6 +57,7 @@ pub enum SyntaxNode {
     BinaryOperation(String, Box<SyntaxTree>, Box<SyntaxTree>),
     RightAssocUnaryOperation(String, Box<SyntaxTree>),
     LeftAssocUnaryOperation(String, Box<SyntaxTree>),
+    IndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
@@ -661,6 +662,19 @@ impl Parser {
                         "--".to_owned(),
                         Box::new(root),
                     ));
+                }
+
+                TokenType::OpenSquare => {
+                    let expr = self.parse_expression()?;
+                    let next_token = self.tokens.pop_front().unwrap();
+                    if let TokenType::CloseSquare = next_token.token_type {
+                        return Ok(SyntaxTree::new(SyntaxNode::IndexingOperation(
+                            Box::new(expr), 
+                            Box::new(root))
+                        ));
+                    }
+
+                    return Err(ParsingError::UnexpectedToken(next_token));
                 }
 
                 // End of this level of precedence

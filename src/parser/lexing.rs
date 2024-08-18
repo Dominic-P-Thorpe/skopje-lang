@@ -239,6 +239,8 @@ impl Scanner {
             ")" => Ok(TokenType::CloseParen),
             "{" => Ok(TokenType::OpenCurly),
             "}" => Ok(TokenType::CloseCurly),
+            "[" => Ok(TokenType::OpenSquare),
+            "]" => Ok(TokenType::CloseSquare),
             ";" => Ok(TokenType::Semicolon),
             "*" => Ok(TokenType::Star),
             "/" => Ok(TokenType::FwdSlash),
