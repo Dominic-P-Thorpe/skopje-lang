@@ -32,6 +32,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
         SyntaxNode::StringLiteral(_) => Ok(Type::new(SimpleType::Str, false, vec![])),
         SyntaxNode::BoolLiteral(_) => Ok(Type::new(SimpleType::Bool, false, vec![])),
         SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id).unwrap().0.clone()),
+        SyntaxNode::ParenExpr(expr) => get_expr_type(expr, context),
 
         SyntaxNode::FunctionCall(id, args) 
         | SyntaxNode::FunctionCallStmt(id, args)=> {
@@ -60,7 +61,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             Ok(func_return_type)
         }
 
-        _ => todo!()
+        other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }
 
@@ -123,5 +124,20 @@ fn get_binary_operation_type(op: String, l_type: Type, r_type: Type) -> Result<T
 
         "==" | "!=" => unimplemented!("Have not yet implemented equality!"),
         _ => panic!("Did not recognise operator {}", op)
+    }
+} 
+
+
+#[cfg(test)]
+mod tests {
+    use crate::parser::parsing::Parser;
+    use crate::parser::lexing::Scanner;
+
+
+    #[test]
+    fn test_basic_integer_checking() {
+        let scanner = Scanner::new("tests/test_basic_integer_checking.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
     }
 }

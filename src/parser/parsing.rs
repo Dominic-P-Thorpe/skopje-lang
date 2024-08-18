@@ -388,7 +388,7 @@ impl Parser {
 
         let expression: SyntaxTree = self.parse_expression()?;
         let expr_type: Type = get_expr_type(&expression, &self.context).unwrap();
-        if expr_type != var_type {
+        if !var_type.is_compatible_with(&expr_type) {
             panic!("Mismatch between variable and expression types!");
         }
 

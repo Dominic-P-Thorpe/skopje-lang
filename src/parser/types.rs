@@ -50,6 +50,38 @@ impl SimpleType {
             )
         }
     }
+
+
+    pub fn is_compatible_with(&self, other: &Self) -> bool {
+        if self == other {
+            return true;
+        }
+
+        if self.is_numeric() && other.is_numeric() {
+            return true;
+        }
+
+        false
+    }
+
+
+    #[allow(unused)]
+    pub fn get_size(&self) -> usize {
+        match &self {
+            Self::I32 | Self::U32 => 32,
+            Self::I64 | Self::U64 => 64,
+            Self::Bool => 8,
+            other => unimplemented!("{:?} has not be implemented yet!", other)
+        }
+    }
+
+
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            Self::I32 | Self::I64 | Self::U32 | Self::U64 => true,
+            _ => false
+        }
+    }
 }
 
 
@@ -122,9 +154,26 @@ impl Type {
 
 
     pub fn is_numeric(&self) -> bool {
-        match self.basic_type {
-            SimpleType::I32 | SimpleType::I64 | SimpleType::U32 | SimpleType::U64 => true,
-            _ => false
-        }
+        self.basic_type.is_numeric()
+    }
+
+
+    pub fn is_compatible_with(&self, other: &Self) -> bool {
+        self.basic_type.is_compatible_with(&other.basic_type)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+
+    #[test]
+    fn test_type_compatibility() {
+        assert!(SimpleType::I32.is_compatible_with(&SimpleType::I32));
+        assert!(SimpleType::I64.is_compatible_with(&SimpleType::I32));
+        assert!(SimpleType::U32.is_compatible_with(&SimpleType::U32));
+        assert!(SimpleType::U64.is_compatible_with(&SimpleType::I32));
     }
 }
