@@ -5,7 +5,9 @@ use super::errors::ParsingError;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SimpleType {
     I32,
+    I64,
     U32,
+    U64,
     Str,
     Void,
     Bool,
@@ -18,7 +20,9 @@ impl SimpleType {
     pub fn from_string(src: &str) -> Result<Self, Box<dyn Error>> {
         Ok(match src {
             "i32" => Self::I32,
+            "i64" => Self::I64,
             "u32" => Self::U32,
+            "u64" => Self::U64,
             "str" => Self::Str,
             "void" => Self::Void,
             "bool" => Self::Bool,
@@ -33,7 +37,9 @@ impl SimpleType {
         match self {
             Self::Void => String::from("void"),
             Self::I32 => String::from("int32_t"),
+            Self::I64 => String::from("int64_t"),
             Self::U32 => String::from("uint32_t"),
+            Self::U64 => String::from("uint64_t"),
             Self::Str => String::from("std::string"),
             Self::Bool => String::from("bool"),
             Self::IOMonad => String::from("IOMonad"),
@@ -117,7 +123,7 @@ impl Type {
 
     pub fn is_numeric(&self) -> bool {
         match self.basic_type {
-            SimpleType::I32 | SimpleType::U32 => true,
+            SimpleType::I32 | SimpleType::I64 | SimpleType::U32 | SimpleType::U64 => true,
             _ => false
         }
     }

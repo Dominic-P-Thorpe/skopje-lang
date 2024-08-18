@@ -28,7 +28,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             get_expr_type(&*arg, context)?
         ),
 
-        SyntaxNode::IntLiteral(_) => Ok(Type::new(SimpleType::I32, false, vec![])),
+        SyntaxNode::IntLiteral(_) => Ok(Type::new(SimpleType::I64, false, vec![])),
         SyntaxNode::StringLiteral(_) => Ok(Type::new(SimpleType::Str, false, vec![])),
         SyntaxNode::BoolLiteral(_) => Ok(Type::new(SimpleType::Bool, false, vec![])),
         SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id).unwrap().0.clone()),
@@ -72,8 +72,8 @@ fn get_unary_operation_type(op: String, arg: Type) -> Result<Type, Box<dyn Error
                 Ok(arg)
             } else {
                 Err(Box::new(TypeError::new(vec![
-                    Type::new(SimpleType::I32, false, vec![]),
-                    Type::new(SimpleType::U32, false, vec![])
+                    Type::new(SimpleType::I64, false, vec![]),
+                    Type::new(SimpleType::U64, false, vec![])
                 ], arg)))
             }
         },
