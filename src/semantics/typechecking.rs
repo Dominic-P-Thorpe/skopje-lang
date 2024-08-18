@@ -61,6 +61,11 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             Ok(func_return_type)
         }
 
+        SyntaxNode::TupleLiteral(exprs) => {
+            let types: Vec<Type> = exprs.iter().map(|e| get_expr_type(e, context).unwrap()).collect();
+            Ok(Type::new(SimpleType::Tuple(types), false, vec![]))
+        }
+
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }
@@ -137,6 +142,23 @@ mod tests {
     #[test]
     fn test_basic_integer_checking() {
         let scanner = Scanner::new("tests/test_basic_integer_checking.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    fn test_tuples() {
+        let scanner = Scanner::new("tests/test_tuples.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_malformed_tuple() {
+        let scanner = Scanner::new("tests/test_malformed_tuple.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }

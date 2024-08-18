@@ -67,6 +67,26 @@ impl SimpleType {
             return true;
         }
 
+        if let Self::Tuple(this_elems) = self {
+            if let Self::Tuple(other_elems) = other {
+                // tuples incompatible due to differing sizes
+                if this_elems.len() != other_elems.len() {
+                    return false;
+                }
+
+                // check that all the member elements' types are compatible
+                for i in 0..this_elems.len() {
+                    if !this_elems.get(i).unwrap().is_compatible_with(other_elems.get(i).unwrap()) {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
         false
     }
 

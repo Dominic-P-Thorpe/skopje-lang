@@ -1,0 +1,4 @@
+fn test_integer_tuple() -> (i32, i64, u32, u64) {
+    let x: (i32, i64, u32, u64) = (1, 2, 3, 4);
+    return x;
+}
