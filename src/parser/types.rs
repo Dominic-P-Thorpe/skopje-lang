@@ -76,19 +76,19 @@ impl Type {
     }
 
 
-    pub fn new(basic_type: SimpleType, linear: bool, generics: Vec<Type>) -> Result<Self, Box<dyn Error>> {
+    pub fn new(basic_type: SimpleType, linear: bool, generics: Vec<Type>) -> Self {
         let monadic: bool = match basic_type {
             SimpleType::IOMonad => true,
             _ => false
         };
 
-        Ok(Type {
+        Type {
             dependencies: vec![], 
             basic_type, 
             monadic, 
             linear, 
             generics
-        })
+        }
     }
 
 
@@ -112,5 +112,13 @@ impl Type {
         };
 
         format!("{}{}", basic_type_str, generic_type_str)
+    }
+
+
+    pub fn is_numeric(&self) -> bool {
+        match self.basic_type {
+            SimpleType::I32 | SimpleType::U32 => true,
+            _ => false
+        }
     }
 }

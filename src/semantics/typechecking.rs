@@ -14,120 +14,7 @@ use crate::Context;
 use super::errors::TypeError;
 
 
-/// Used to denote a set of possible types that something may have. For example, we may know that 
-/// an expression has a numeric type, but not precicely which numeric type.
-/// 
-/// # Example
-/// 
-/// ```
-/// let type_field: TypeField = TypeField::new();
-/// ```
-#[derive(Debug, Clone)]
-pub struct TypeField {
-    valid_types: Vec<Type>
-}
-
-
-#[allow(unused)]
-impl TypeField {
-    /// Creates a new [`TypeField`] instance where the valid types are all the possible types
-    /// available in the given context of the program. 
-    pub fn new() -> Self {
-        TypeField {
-            valid_types: vec![
-                Type::new(SimpleType::I32, false, vec![]).unwrap(),
-                Type::new(SimpleType::U32, false, vec![]).unwrap(),
-                Type::new(SimpleType::Str, false, vec![]).unwrap(),
-                Type::new(SimpleType::Bool, false, vec![]).unwrap(),
-            ]
-        }
-    }
-
-
-    /// Creates a new [`TypeField`] instance where the valid types are all the possible 
-    /// <b>numerical</b> types available in the given context of the program. 
-    pub fn new_numeric() -> Self {
-        let mut field = Self::new();
-        field.restrict_numeric();
-        field
-    }
-
-
-    pub fn from_type(t: Type) -> Self {
-        TypeField {
-            valid_types: vec![t]
-        }
-    }
-
-
-    /// Removes all non_numerical types from the valid types in this instance of [`TypeField`].
-    pub fn restrict_numeric(&mut self) {
-        self.valid_types = self.valid_types
-                               .iter()
-                               .filter(|t| type_is_numeric(t))
-                               .cloned()
-                               .collect();
-    } 
-
-
-    /// Adds the given type to the set of valid types
-    pub fn add(&mut self, new_type: Type) {
-        self.valid_types.push(new_type);
-    }
-
-
-    /// Removes the given type from the set of valid types
-    pub fn remove(&mut self, to_remove: &Type) {
-        self.valid_types = self.valid_types
-                               .iter()
-                               .filter(|t| *t != to_remove)
-                               .cloned()
-                               .collect();
-    }
-
-
-    /// Removes all values from the set of valid types
-    pub fn clear(&mut self) {
-        self.valid_types = vec![];
-    }
-
-
-    /// True if the set of valid types is empty, otherwise returns false
-    pub fn is_empty(&self) -> bool {
-        self.valid_types.is_empty()
-    }
-
-
-    /// Returns a new [`TypeField`] containing only those types present in the sets of valid types
-    /// of both this type field and the passed type field.
-    pub fn intersection(&self, other: &Self) -> Self {
-        let intersection = self.valid_types
-                               .iter()
-                               .filter(|t| other.valid_types.contains(t))
-                               .cloned()
-                               .collect();
-        TypeField { valid_types: intersection }
-    }
-
-
-    /// True if this type field contains the passed type, otherwise false
-    pub fn contains(&self, other: &Type) -> bool {
-        self.valid_types.contains(other)
-    }
-
-
-    /// True if there is any numerical type in the current set of valid types, otherwise false
-    pub fn contains_numeric(&self) -> bool {
-        self.valid_types.iter()
-            .filter(|t| type_is_numeric(t))
-            .cloned()
-            .collect::<Vec<Type>>()
-            .len() > 0
-    }
-}
-
-
-pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<TypeField, Box<dyn Error>> {
+pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<dyn Error>> {
     match &expr.node {
         SyntaxNode::BinaryOperation(op, l, r) => get_binary_operation_type(
             op.to_string(), 
@@ -141,32 +28,10 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<TypeField, 
             get_expr_type(&*arg, context)?
         ),
 
-        SyntaxNode::IntLiteral(_) => {
-            let mut type_field = TypeField::new();
-            type_field.restrict_numeric();
-            Ok(type_field)
-        }
-
-        SyntaxNode::StringLiteral(_) => {
-            let mut type_field = TypeField::new();
-            type_field.clear();
-            type_field.add(Type::new(SimpleType::Str, false, vec![])?);
-            Ok(type_field)
-        },
-
-        SyntaxNode::BoolLiteral(_) => {
-            let mut type_field = TypeField::new();
-            type_field.clear();
-            type_field.add(Type::new(SimpleType::Bool, false, vec![])?);
-            Ok(type_field)
-        }
-
-        SyntaxNode::Identifier(id) => {
-            let mut type_field = TypeField::new();
-            type_field.clear();
-            type_field.add(context.valid_identifiers.get(id).unwrap().0.clone());
-            Ok(type_field)
-        }
+        SyntaxNode::IntLiteral(_) => Ok(Type::new(SimpleType::I32, false, vec![])),
+        SyntaxNode::StringLiteral(_) => Ok(Type::new(SimpleType::Str, false, vec![])),
+        SyntaxNode::BoolLiteral(_) => Ok(Type::new(SimpleType::Bool, false, vec![])),
+        SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id).unwrap().0.clone()),
 
         SyntaxNode::FunctionCall(id, args) 
         | SyntaxNode::FunctionCallStmt(id, args)=> {
@@ -185,14 +50,14 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<TypeField, 
 
             // verify that the parameters are all of the same type
             for i in 0..param_types.len() {
-                let arg_field: TypeField = get_expr_type(args.get(i).unwrap(), context)?;
+                let arg_type: Type = get_expr_type(args.get(i).unwrap(), context)?;
                 let param_type: &Type = param_types.get(i).unwrap();
-                if !arg_field.contains(param_type) {
-                    return Err(Box::new(TypeError::new(arg_field, TypeField::from_type(param_type.clone()))));
+                if &arg_type != param_type {
+                    return Err(Box::new(TypeError::new(vec![arg_type], param_type.clone())));
                 }
             }
 
-            Ok(TypeField::from_type(func_return_type))
+            Ok(func_return_type)
         }
 
         _ => todo!()
@@ -200,21 +65,26 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<TypeField, 
 }
 
 
-fn get_unary_operation_type(op: String, arg: TypeField) -> Result<TypeField, Box<dyn Error>> {
+fn get_unary_operation_type(op: String, arg: Type) -> Result<Type, Box<dyn Error>> {
     match op.as_str() {
         "-" | "+" | "~" | "++" | "--" => {
-            arg.clone().restrict_numeric();
-            Ok(arg)
+            if arg.is_numeric() {
+                Ok(arg)
+            } else {
+                Err(Box::new(TypeError::new(vec![
+                    Type::new(SimpleType::I32, false, vec![]),
+                    Type::new(SimpleType::U32, false, vec![])
+                ], arg)))
+            }
         },
 
         "!" => {
-            let mut valid_field = TypeField::new();
-            valid_field.clear();
-            valid_field.add(Type::new(SimpleType::Bool, false, vec![]).unwrap());
-
-            match arg.contains(&Type::new(SimpleType::Bool, false, vec![]).unwrap()) {
-                true => Ok(arg.clone()),
-                false => Err(Box::new(TypeError::new(valid_field, arg)))
+            if let SimpleType::Bool = arg.basic_type {
+                Ok(Type::new(SimpleType::Bool, false, vec![]))
+            } else {
+                Err(Box::new(TypeError::new(vec![
+                    Type::new(SimpleType::Bool, false, vec![])
+                ], arg)))
             }
         },
 
@@ -223,50 +93,35 @@ fn get_unary_operation_type(op: String, arg: TypeField) -> Result<TypeField, Box
 }
 
 
-fn get_binary_operation_type(op: String, l_type: TypeField, r_type: TypeField) -> Result<TypeField, Box<dyn Error>> {
-    let intersection: TypeField = l_type.intersection(&r_type);
+fn get_binary_operation_type(op: String, l_type: Type, r_type: Type) -> Result<Type, Box<dyn Error>> {
     match op.as_str() {
         // two numerical arguments and a numerical output
         "+" | "-" | "*" | "/" | "**" | "%" | "&" | "|" | ">>" | ">>>" | "<<" => {
-            match intersection.contains_numeric() {
-                true => Ok(intersection),
-                false => Err(Box::new(TypeError::new(TypeField::new_numeric(), intersection)))
+            if l_type.is_numeric() && r_type.is_numeric() {
+                Ok(l_type)
+            } else {
+                panic!("Expected numerical types for operation {}, got {:?}", op, l_type)
             }
         }
 
         // two boolean arguments and a boolean output
         "&&" | "||" => {
-            let mut valid_field = TypeField::new();
-            valid_field.clear();
-            valid_field.add(Type::new(SimpleType::Bool, false, vec![]).unwrap());
-
-            match intersection.contains(&Type::new(SimpleType::Bool, false, vec![]).unwrap()) {
-                true => Ok(intersection),
-                false => Err(Box::new(TypeError::new(valid_field, intersection)))
+            if l_type == Type::new(SimpleType::Bool, false, vec![]) && r_type == Type::new(SimpleType::Bool, false, vec![]) {
+                Ok(l_type)
+            } else {
+                panic!("Expected boolean types for operation {}, got {:?}", op, l_type)
             }
         },
 
         ">" | "<" | ">=" | "<=" => {
-            let mut valid_field = TypeField::new();
-            valid_field.clear();
-            valid_field.add(Type::new(SimpleType::Bool, false, vec![]).unwrap());
-
-            match intersection.contains_numeric() {
-                true => Ok(valid_field),
-                false => Err(Box::new(TypeError::new(TypeField::new_numeric(), intersection)))
+            if l_type.is_numeric() && r_type.is_numeric() {
+                Ok(Type::new(SimpleType::Bool, false, vec![]))
+            } else {
+                panic!("Expected numerical types for operation {}, got {:?}", op, l_type)
             }
         },
 
         "==" | "!=" => unimplemented!("Have not yet implemented equality!"),
         _ => panic!("Did not recognise operator {}", op)
-    }
-}
-
-
-fn type_is_numeric(t: &Type) -> bool {
-    match t.basic_type {
-        SimpleType::I32
-        | SimpleType::U32 => true,
-        _ => false
     }
 }

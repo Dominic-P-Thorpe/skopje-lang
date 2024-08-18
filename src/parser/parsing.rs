@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 
-use crate::semantics::typechecking::{TypeField, get_expr_type};
+use crate::semantics::typechecking::get_expr_type;
 
 use super::types::SimpleType;
 use super::{errors::ParsingError, token::*, types::Type};
@@ -105,8 +105,8 @@ pub struct Context {
 impl Context {
     pub fn new() -> Self {
         let mut valid_identifiers: HashMap<String, (Type, usize)> = HashMap::new();
-        valid_identifiers.insert("print".to_owned(), (Type::new(SimpleType::Void, false, vec![]).unwrap(), 0));
-        valid_identifiers.insert("readln".to_owned(), (Type::new(SimpleType::Void, false, vec![]).unwrap(), 0));
+        valid_identifiers.insert("print".to_owned(), (Type::new(SimpleType::Void, false, vec![]), 0));
+        valid_identifiers.insert("readln".to_owned(), (Type::new(SimpleType::Void, false, vec![]), 0));
 
         Context {
             valid_identifiers,
@@ -233,7 +233,7 @@ impl Parser {
             // add this function to the valid functions available in this context
             let func_type = Type::new(SimpleType::Function(
                 Box::new(return_type.clone()), params.iter().map(|(_, t)| t).cloned().collect::<Vec<Type>>()
-            ), false, vec![])?;
+            ), false, vec![]);
             self.context.add_var(id.clone(), func_type);
 
             return Ok(SyntaxTree::new(
@@ -356,8 +356,8 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::Equal));
 
         let expr = self.parse_expression()?;
-        let expr_type: TypeField = get_expr_type(&expr, &self.context).unwrap();
-        if !expr_type.contains(&self.context.valid_identifiers.get(&id).unwrap().0) {
+        let expr_type: Type = get_expr_type(&expr, &self.context).unwrap();
+        if expr_type != self.context.valid_identifiers.get(&id).unwrap().0 {
             panic!("Mismatch between variable and expression types!");
         }
 
@@ -387,8 +387,8 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::Equal));
 
         let expression: SyntaxTree = self.parse_expression()?;
-        let expr_type: TypeField = get_expr_type(&expression, &self.context).unwrap();
-        if !expr_type.contains(&var_type) {
+        let expr_type: Type = get_expr_type(&expression, &self.context).unwrap();
+        if expr_type != var_type {
             panic!("Mismatch between variable and expression types!");
         }
 
@@ -449,7 +449,7 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::OpenParen));
 
         let expr = self.parse_expression()?;
-        if !get_expr_type(&expr, &self.context).unwrap().contains(&Type::new(SimpleType::Bool, false, vec![]).unwrap()) {
+        if get_expr_type(&expr, &self.context).unwrap() != Type::new(SimpleType::Bool, false, vec![]) {
             panic!("If statement's condition must be of type bool!");
         }
 
@@ -748,7 +748,7 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::OpenParen));
 
         let cond = self.parse_expression()?;
-        if !get_expr_type(&cond, &self.context).unwrap().contains(&Type::new(SimpleType::Bool, false, vec![]).unwrap()) {
+        if get_expr_type(&cond, &self.context).unwrap() != Type::new(SimpleType::Bool, false, vec![]) {
             panic!("If statement's condition must be of type bool!");
         }
 
