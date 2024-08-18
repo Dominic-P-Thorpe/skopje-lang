@@ -256,6 +256,16 @@ impl Transpiler {
                 
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
             }
+
+            SyntaxNode::TupleLiteral(expressions) => {
+                Ok(format!(
+                    "std::make_tuple({})",
+                    expressions.iter()
+                               .map(|e| self.transpile_c_tree(e, indent).unwrap())
+                               .collect::<Vec<String>>()
+                               .join(", ")
+                ))
+            }
         }
     }
 }

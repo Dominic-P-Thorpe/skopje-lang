@@ -11,6 +11,7 @@ pub enum SimpleType {
     Str,
     Void,
     Bool,
+    Tuple(Vec<Type>),
     Function(Box<Type>, Vec<Type>), // return type, vec of params
     IOMonad
 }
@@ -43,6 +44,11 @@ impl SimpleType {
             Self::Str => String::from("std::string"),
             Self::Bool => String::from("bool"),
             Self::IOMonad => String::from("IOMonad"),
+            Self::Tuple(types) => format!(
+                "std::tuple<{}>",
+                types.iter().map(|t| t.as_ctype_str()).collect::<Vec<String>>().join(", ")
+            ),
+
             Self::Function(return_type, params) => format!(
                 "std::function<{}({})>",
                 return_type.as_ctype_str(),
