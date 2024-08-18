@@ -57,6 +57,7 @@ pub enum SyntaxNode {
     BinaryOperation(String, Box<SyntaxTree>, Box<SyntaxTree>),
     RightAssocUnaryOperation(String, Box<SyntaxTree>),
     LeftAssocUnaryOperation(String, Box<SyntaxTree>),
+    IndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
@@ -67,6 +68,7 @@ pub enum SyntaxNode {
     StringLiteral(String),
     IntLiteral(u64),
     BoolLiteral(bool),
+    TupleLiteral(Vec<SyntaxTree>),
     Identifier(String)
 }
 
@@ -414,6 +416,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         let basic_type = match next_token.token_type {
             TokenType::Identifier(id) => id,
+            TokenType::OpenParen => return self.parse_tuple_type(),
             _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         };
 
@@ -441,6 +444,28 @@ impl Parser {
         };
 
         Ok(Type::new_str(basic_type, false, generics)?)
+    }
+
+
+    /// Parses a tuple type, which is a parenthesized list of types separated by commas
+    fn parse_tuple_type(&mut self) -> Result<Type, Box<dyn Error>> {
+        let mut types: Vec<Type> = vec![];
+        loop {
+            types.push(self.parse_type()?);
+
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Comma => continue,
+                TokenType::CloseParen => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+            }
+        }
+
+        if types.len() < 2 {
+            panic!("Tuple must have at least 2 elements!");
+        }
+
+        Ok(Type::new(SimpleType::Tuple(types), false, vec![]))
     }
 
 
@@ -639,6 +664,19 @@ impl Parser {
                     ));
                 }
 
+                TokenType::OpenSquare => {
+                    let expr = self.parse_expression()?;
+                    let next_token = self.tokens.pop_front().unwrap();
+                    if let TokenType::CloseSquare = next_token.token_type {
+                        return Ok(SyntaxTree::new(SyntaxNode::IndexingOperation(
+                            Box::new(expr), 
+                            Box::new(root))
+                        ));
+                    }
+
+                    return Err(ParsingError::UnexpectedToken(next_token));
+                }
+
                 // End of this level of precedence
                 _ => {
                     self.tokens.push_front(next_token);
@@ -681,18 +719,41 @@ impl Parser {
                 }
             }
 
-            TokenType::OpenParen => {
-                let expr: SyntaxTree = self.parse_expression()?;
-                let next_token = self.tokens.pop_front().unwrap();
-                if let TokenType::CloseParen = next_token.token_type {
-                    return Ok(SyntaxTree::new(SyntaxNode::ParenExpr(Box::new(expr))));
-                }
-
-                return Err(ParsingError::UnexpectedToken(next_token));
-            }
-
+            TokenType::OpenParen => self.parse_tuple_or_paren_expr(),
             _ => Err(ParsingError::UnexpectedToken(next_token))
         }
+    }
+
+
+    /// Used when it is unclear if the next set of tokens represents a parenthesized expression or
+    /// a tuple. This can be determined by seeing if the first expression encountered ends with a
+    /// comma, making it a tuple, or a close parenthesis, making it a parenthesized expression.
+    fn parse_tuple_or_paren_expr(&mut self) -> Result<SyntaxTree, ParsingError> {
+        let expr = self.parse_expression()?;
+        let next_token = self.tokens.pop_front().unwrap();
+        match &next_token.token_type {
+            TokenType::CloseParen => Ok(SyntaxTree::new(SyntaxNode::ParenExpr(Box::new(expr)))),
+            TokenType::Comma => self.parse_tuple(expr),
+            _ => Err(ParsingError::UnexpectedToken(next_token))
+        }
+    }
+
+
+    /// Parses a tuple, which syntactically is a comma-separated list of 2 or more expressions, the
+    /// whole thing of which is enclosed in parentheses.
+    fn parse_tuple(&mut self, first_expr: SyntaxTree) -> Result<SyntaxTree, ParsingError> {
+        let mut expressions: Vec<SyntaxTree> = vec![first_expr];
+        loop {
+            expressions.push(self.parse_expression()?);
+            let next_token = self.tokens.pop_front().unwrap();
+            match &next_token.token_type {
+                TokenType::Comma => continue,
+                TokenType::CloseParen => break,
+                _ => return Err(ParsingError::UnexpectedToken(next_token))
+            } 
+        }
+
+        Ok(SyntaxTree::new(SyntaxNode::TupleLiteral(expressions)))
     }
 
 

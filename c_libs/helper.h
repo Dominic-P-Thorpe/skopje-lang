@@ -7,6 +7,7 @@
 #include <functional>
 #include <type_traits>
 #include <string>
+#include <tuple>
 #include "monad.h"
 
 /// @brief Returns true if the type param T is an `IOMonad`, and false otherwise 

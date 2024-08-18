@@ -159,6 +159,8 @@ impl Transpiler {
                 Ok(op.to_owned() + " " + &self.transpile_c_tree(r, indent)?),
             SyntaxNode::LeftAssocUnaryOperation(op, l) => 
                 Ok(self.transpile_c_tree(l, indent)? + " " + op),
+            SyntaxNode::IndexingOperation(index, l) => 
+                Ok(format!("std::get<{}>({})", self.transpile_c_tree(index, indent)?, self.transpile_c_tree(l, indent)?)),
             SyntaxNode::ParenExpr(expr) => 
                 Ok("(".to_owned() + &self.transpile_c_tree(expr, indent)? + ")"),
             SyntaxNode::StringLiteral(s) => Ok(format!("\"{}\"", s)),
@@ -255,6 +257,16 @@ impl Transpiler {
                 );
                 
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
+            }
+
+            SyntaxNode::TupleLiteral(expressions) => {
+                Ok(format!(
+                    "std::make_tuple({})",
+                    expressions.iter()
+                               .map(|e| self.transpile_c_tree(e, indent).unwrap())
+                               .collect::<Vec<String>>()
+                               .join(", ")
+                ))
             }
         }
     }
