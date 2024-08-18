@@ -177,7 +177,7 @@ impl Transpiler {
                     return Ok(format!("printf({})", args.first().unwrap()));
                 }
 
-                Ok(func_id.to_owned() + &"(".to_owned() + &args.join(", ") + &")".to_owned())
+                Ok(format!("{}({})", func_id, &args.join(", ")))
             },
 
             SyntaxNode::FunctionCallStmt(func_id, args) => {

@@ -212,6 +212,8 @@ impl Parser {
     /// }
     /// ```
     fn parse_function(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        let context_window_id: usize = self.context.start_new_context_window();
+
         let id_token = self.tokens.pop_front().unwrap();
         if let TokenType::Identifier(id) = id_token.token_type {
             let open_paren = self.tokens.pop_front().unwrap();
@@ -238,6 +240,7 @@ impl Parser {
             ), false, vec![]);
             self.context.add_var(id.clone(), func_type);
 
+            self.context.end_context_window(&context_window_id);
             return Ok(SyntaxTree::new(
                 SyntaxNode::Function(id, params, return_type, body)
             ));
@@ -285,7 +288,8 @@ impl Parser {
                 return Err(ParsingError::UnexpectedToken(next_token));
             }
 
-            params.push((p_id, p_type));
+            params.push((p_id.clone(), p_type.clone()));
+            self.context.add_var(p_id, p_type);
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
