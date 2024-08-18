@@ -1,0 +1,48 @@
+fn return_1() -> u64 {
+    return 1;
+}
+
+
+fn test_i32() -> i32 {
+    let x: i32 = 1 + 2 * 3 / 4 % 5;
+    let y: i32 = (1 << 6) >> (5 >>> 1);
+    let z: i32 = x + y + return_1();
+    return z;
+}
+
+
+fn test_u32() -> i32 {
+    let x: u32 = 1 + 2 * 3 / 4 % 5;
+    let y: u32 = (1 << 6) >> (5 >>> 1);
+    let z: u32 = x + y + return_1();
+    return z;
+}
+
+
+fn test_i64() -> i64 {
+    let x: i64 = 1 + 2 * 3 / 4 % 5;
+    let y: i64 = (1 << 6) >> (5 >>> 1);
+    let z: i64 = x + y + return_1();
+    return z;
+}
+
+
+fn test_u64() -> u64 {
+    let x: u64 = 1 + 2 * 3 / 4 % 5;
+    let y: u64 = (1 << 6) >> (5 >>> 1);
+    let z: u64 = x + y + return_1();
+    return z;
+}
+
+
+fn test_bool() -> bool {
+    let x: bool = true;
+    let y: bool = x && true || false;
+
+    let a: bool = 20 > 30;
+    let b: bool = 14 < 60;
+    let c: bool = 10 >= 13;
+    let d: bool = 70 <= 18;
+
+    return y;
+}

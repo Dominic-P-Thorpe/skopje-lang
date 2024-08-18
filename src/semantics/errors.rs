@@ -1,17 +1,17 @@
 use std::{fmt, error};
 
-use super::typechecking::TypeField;
+use crate::parser::types::Type;
 
 
 #[derive(Debug)]
 pub struct TypeError {
-    expected: TypeField,
-    got: TypeField
+    expected: Vec<Type>,
+    got: Type
 }
 
 
 impl TypeError {
-    pub fn new(expected: TypeField, got: TypeField) -> Self {
+    pub fn new(expected: Vec<Type>, got: Type) -> Self {
          Self { expected, got }
     }
 }
