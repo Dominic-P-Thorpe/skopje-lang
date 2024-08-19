@@ -247,8 +247,15 @@ impl Scanner {
             "%" => Ok(TokenType::Percent),
             "~" => Ok(TokenType::Complement),
             "?" => Ok(TokenType::Question),
-            ":" => Ok(TokenType::Colon),
             "," => Ok(TokenType::Comma),
+
+            ":" => {
+                if let Some(':') = self.peek(line, 0) {
+                    self.advance();
+                    return Ok(TokenType::DoubleColon);
+                }
+                Ok(TokenType::Colon)
+            }
 
             "+" => {
                 if let Some('+') = self.peek(line, 0) {

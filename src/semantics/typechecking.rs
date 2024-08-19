@@ -152,6 +152,20 @@ fn get_binary_operation_type(op: String, l_type: Type, r_type: Type) -> Result<T
             }
         },
 
+        // 2 array arguments and an array result
+        "::" => {
+            if let SimpleType::Array(l_inner, l_size) = l_type.basic_type {
+                if let SimpleType::Array(r_inner, r_size) = r_type.basic_type {
+                    if !l_inner.is_compatible_with(&r_inner) {
+                        panic!("{:?} is not compatible with {:?}!", l_inner, r_inner);
+                    }
+                    return Ok(Type::new(SimpleType::Array(l_inner, l_size + r_size), false, vec![]))
+                }
+            }
+
+            panic!("Expected 2 array arguments for operation ::")
+        }
+
         "==" | "!=" => unimplemented!("Have not yet implemented equality!"),
         _ => panic!("Did not recognise operator {}", op)
     }

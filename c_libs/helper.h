@@ -9,6 +9,8 @@
 #include <string>
 #include <tuple>
 #include <array>
+#include <experimental/array>
+#include <algorithm>
 #include "monad.h"
 
 /// @brief Returns true if the type param T is an `IOMonad`, and false otherwise 
@@ -45,5 +47,27 @@ std::string readln(std::string msg) {
 
     return input; 
 }
+
+
+/// @brief Takes 2 arrays as arguments and concatenates them, returning arr2 appended to arr1.
+/// @tparam T The type of the elements of arr1 and arr2
+/// @tparam N The size of arr1
+/// @tparam M The size of arr2
+/// @param arr1 The array at the start of the new array
+/// @param arr2 The array at the end of the new array
+/// @return Arr2 concatenated to the end of arr1
+template <typename T, std::size_t N, std::size_t M>
+std::array<T, N + M> concatenate(const std::array<T, N>& arr1, const std::array<T, M>& arr2) {
+    std::array<T, N + M> result;
+
+    // Copy elements from the first array
+    std::copy(arr1.begin(), arr1.end(), result.begin());
+
+    // Copy elements from the second array
+    std::copy(arr2.begin(), arr2.end(), result.begin() + N);
+
+    return result;
+}
+
 
 #endif

@@ -45,6 +45,7 @@ pub enum TokenType {
     DoubleUpArrow,
     Question,
     Colon,
+    DoubleColon,
     Comma,
     FnKeyword,
     ReturnKeyword,

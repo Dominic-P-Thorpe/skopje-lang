@@ -91,7 +91,6 @@ impl Transpiler {
 
     pub fn transpile_c(&mut self) -> Result<(), Box<dyn Error>> {
         self.file.write(b"#include \"c_libs/helper.h\"\n")?;
-        self.file.write(b"#include \"c_libs/skopje_array.h\"\n\n")?;
 
         if let SyntaxNode::Program(statements) = &self.ast.node.clone() {
             let mut statements_text: String = String::new();
@@ -150,11 +149,11 @@ impl Transpiler {
             SyntaxNode::BinaryOperation(op, l, r) => {
                 // arrow operation cannot be handled in the same way as primitive operations found
                 // in C++ natively
-                if op.as_str() == "->" {
-                    return Ok(format!("{}.arrow({}.bind())", self.transpile_c_tree(l, indent)?, self.transpile_c_tree(r, indent)?));
+                match op.as_str() {
+                    "::" => Ok(format!("concatenate({}, {})", self.transpile_c_tree(l, indent)?, self.transpile_c_tree(r, indent)?)),
+                    "->" => Ok(format!("{}.arrow({}.bind())", self.transpile_c_tree(l, indent)?, self.transpile_c_tree(r, indent)?)),
+                    _ => Ok(format!("{} {} {}", self.transpile_c_tree(l, indent)?, op, self.transpile_c_tree(l, indent)?)) 
                 }
-                
-                Ok(format!("{} {} {}", self.transpile_c_tree(l, indent)?, op, self.transpile_c_tree(l, indent)?))
             }
             SyntaxNode::RightAssocUnaryOperation(op, r) => 
                 Ok(op.to_owned() + " " + &self.transpile_c_tree(r, indent)?),
@@ -275,7 +274,7 @@ impl Transpiler {
 
             SyntaxNode::ArrayLiteral(elems, _) => {
                 Ok(format!(
-                    "{{ {} }}",
+                    "std::experimental::make_array({})",
                     elems.iter()
                          .map(|e| self.transpile_c_tree(e, indent).unwrap())
                          .collect::<Vec<String>>()
