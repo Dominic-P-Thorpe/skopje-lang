@@ -24,6 +24,7 @@ use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 
+use crate::parser::types::SimpleType;
 use crate::{SyntaxNode, SyntaxTree};
 
 
@@ -90,7 +91,8 @@ impl Transpiler {
 
 
     pub fn transpile_c(&mut self) -> Result<(), Box<dyn Error>> {
-        self.file.write(b"#include \"c_libs/helper.h\"\n\n")?;
+        self.file.write(b"#include \"c_libs/helper.h\"\n")?;
+        self.file.write(b"#include \"c_libs/skopje_array.h\"\n\n")?;
 
         if let SyntaxNode::Program(statements) = &self.ast.node.clone() {
             let mut statements_text: String = String::new();
@@ -165,10 +167,16 @@ impl Transpiler {
                 Ok("(".to_owned() + &self.transpile_c_tree(expr, indent)? + ")"),
             SyntaxNode::StringLiteral(s) => Ok(format!("\"{}\"", s)),
             SyntaxNode::IntLiteral(n) => Ok(n.to_string()),
-            SyntaxNode::Identifier(id) => Ok(id.to_owned()),
             SyntaxNode::BoolLiteral(true) => Ok("true".to_owned()),
             SyntaxNode::BoolLiteral(false) => Ok("false".to_owned()),
             SyntaxNode::Program(_) => panic!("Got program when I should not have!"),
+            SyntaxNode::Identifier(id, id_type) => {
+                match id_type.basic_type {
+                    SimpleType::Array(_) => Ok(format!("std::move({})", id)), 
+                    _ => Ok(id.to_owned())
+                }
+            },
+
             SyntaxNode::FunctionCall(func_id, args) => {
                 let args: Vec<String> = args.iter()
                                             .map(|arg| self.transpile_c_tree(arg, indent).unwrap())
@@ -190,7 +198,7 @@ impl Transpiler {
                     return Ok(format!("{}readln({});", "    ".repeat(indent), args.first().unwrap()));
                 }
 
-                Ok(format!("{}({});", "    ".repeat(indent), args.join(", ")))
+                Ok(format!("{}{}({});", "    ".repeat(indent), func_id, args.join(", ")))
             },
 
             SyntaxNode::SelectionStatement(cond, if_body, None) => {
@@ -266,6 +274,17 @@ impl Transpiler {
                                .map(|e| self.transpile_c_tree(e, indent).unwrap())
                                .collect::<Vec<String>>()
                                .join(", ")
+                ))
+            }
+
+            SyntaxNode::ArrayLiteral(elems, array_type) => {
+                Ok(format!(
+                    "init_array<{}>({})",
+                    array_type.as_ctype_str(),
+                    elems.iter()
+                         .map(|e| self.transpile_c_tree(e, indent).unwrap())
+                         .collect::<Vec<String>>()
+                         .join(", ")
                 ))
             }
         }

@@ -31,7 +31,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
         SyntaxNode::IntLiteral(_) => Ok(Type::new(SimpleType::I64, false, vec![])),
         SyntaxNode::StringLiteral(_) => Ok(Type::new(SimpleType::Str, false, vec![])),
         SyntaxNode::BoolLiteral(_) => Ok(Type::new(SimpleType::Bool, false, vec![])),
-        SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id).unwrap().0.clone()),
+        SyntaxNode::Identifier(_, id_type) => Ok(id_type.clone()),
         SyntaxNode::ParenExpr(expr) => get_expr_type(expr, context),
 
         SyntaxNode::IndexingOperation(index, expr) => {
@@ -65,7 +65,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             for i in 0..param_types.len() {
                 let arg_type: Type = get_expr_type(args.get(i).unwrap(), context)?;
                 let param_type: &Type = param_types.get(i).unwrap();
-                if &arg_type != param_type {
+                if !arg_type.is_compatible_with(param_type) {
                     return Err(Box::new(TypeError::new(vec![arg_type], param_type.clone())));
                 }
             }
@@ -76,6 +76,17 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
         SyntaxNode::TupleLiteral(exprs) => {
             let types: Vec<Type> = exprs.iter().map(|e| get_expr_type(e, context).unwrap()).collect();
             Ok(Type::new(SimpleType::Tuple(types), false, vec![]))
+        }
+
+        SyntaxNode::ArrayLiteral(elems, inner_type) => {
+            for elem in elems {
+                let elem_type = get_expr_type(elem, context)?;
+                if !elem_type.is_compatible_with(&inner_type) {
+                    return Err(Box::new(TypeError::new(vec![inner_type.clone()], elem_type)));
+                }
+            }
+
+            Ok(Type::new(SimpleType::Array(Box::new(inner_type.clone())), false, vec![]))
         }
 
         other => unimplemented!("Have not yet implemented {:?}", other)
@@ -174,6 +185,21 @@ fn fold_constexpr_index(expr: &SyntaxTree) -> usize {
 mod tests {
     use crate::parser::parsing::Parser;
     use crate::parser::lexing::Scanner;
+    use crate::parser::types::{Type, SimpleType};
+
+
+    #[test]
+    fn test_array_compatibility() {
+        assert!(
+            Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I32, false, vec![]))), false, vec![])
+                .is_compatible_with(&Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I64, false, vec![]))), false, vec![])),
+        );
+
+        assert!(
+            Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I64, false, vec![]))), false, vec![])
+                .is_compatible_with(&Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I32, false, vec![]))), false, vec![])),
+        )
+    }
 
 
     #[test]
@@ -193,6 +219,14 @@ mod tests {
 
 
     #[test]
+    fn test_basic_array() {
+        let scanner = Scanner::new("tests/test_basic_array.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
     #[should_panic]
     fn test_malformed_tuple() {
         let scanner = Scanner::new("tests/test_malformed_tuple.skj").unwrap();
@@ -205,6 +239,24 @@ mod tests {
     #[should_panic]
     fn test_non_constexpr_tuple_index() {
         let scanner = Scanner::new("tests/test_non_constexpr_tuple_index.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_heterogenous_array() {
+        let scanner = Scanner::new("tests/test_heterogenous_array.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_ill_typed_array() {
+        let scanner = Scanner::new("tests/test_ill_typed_array.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }

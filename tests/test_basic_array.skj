@@ -1,0 +1,9 @@
+fn test_array(arr: i32[]) -> i32 {
+    let new_array: i32[] = arr ++ [1, 2, 3];
+    return new_array[3];
+}
+
+
+fn main() {
+    test_array([5,6,7]);
+}

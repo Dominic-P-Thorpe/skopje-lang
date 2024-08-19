@@ -69,7 +69,10 @@ pub enum SyntaxNode {
     IntLiteral(u64),
     BoolLiteral(bool),
     TupleLiteral(Vec<SyntaxTree>),
-    Identifier(String)
+    ArrayLiteral(Vec<SyntaxTree>, Type),
+    // store the type so that if the type is an std::unique_ptr we know to use std::move when we 
+    // want to use it
+    Identifier(String, Type) 
 }
 
 
@@ -264,8 +267,7 @@ impl Parser {
         // get all the params into the vec (which are comma separated) until the last ")" token 
         // is reached
         loop {
-            let p_id: String; 
-            let p_type: Type;
+            let p_id: String;
 
             let next_token = self.tokens.pop_front().unwrap();
             if let TokenType::Identifier(id) = next_token.token_type {
@@ -281,12 +283,7 @@ impl Parser {
             }
 
             // TODO: make this work with all param types
-            let next_token = self.tokens.pop_front().unwrap();
-            if let TokenType::Identifier(t) = next_token.token_type {
-                p_type = Type::new_str(t, false, vec![]).unwrap();
-            } else {
-                return Err(ParsingError::UnexpectedToken(next_token));
-            }
+            let p_type: Type = self.parse_type().unwrap();
 
             params.push((p_id.clone(), p_type.clone()));
             self.context.add_var(p_id, p_type);
@@ -447,7 +444,29 @@ impl Parser {
             _ => vec![] // no generic
         };
 
-        Ok(Type::new_str(basic_type, false, generics)?)
+        let mut array_dimensions: usize = 0;
+        loop {
+            let next_token = self.tokens.get(0).unwrap();
+            let next_token_2 = self.tokens.get(1).unwrap();
+            match (&next_token.token_type, &next_token_2.token_type) {
+                (TokenType::OpenSquare, TokenType::CloseSquare) => {
+                    array_dimensions += 1;
+                    self.tokens.pop_front();
+                    self.tokens.pop_front();
+                },
+
+                (TokenType::OpenSquare, _) => 
+                    return Err(Box::new(ParsingError::UnexpectedToken(next_token_2.clone()))),
+                _ => break
+            }
+        }
+
+        let mut final_type: Type = Type::new_str(basic_type, false, generics)?;
+        for _ in 0..array_dimensions {
+            final_type = Type::new(SimpleType::Array(Box::new(final_type)), false, vec![]);
+        }
+
+        Ok(final_type)
     }
 
 
@@ -650,7 +669,7 @@ impl Parser {
     }
 
     fn parse_left_assoc_unary(&mut self) -> Result<SyntaxTree, ParsingError> {
-        let mut root: SyntaxTree = self.parse_factor()?;
+        let mut root: SyntaxTree = self.parse_factor().unwrap();
         loop {
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
@@ -694,7 +713,7 @@ impl Parser {
 
 
     /// Parses a factor, which is a literal, function invocation, or parenthesized expression.
-    fn parse_factor(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_factor(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s))),
@@ -718,34 +737,53 @@ impl Parser {
 
                     _ => {
                         self.tokens.push_front(next_token);
-                        return Ok(SyntaxTree::new(SyntaxNode::Identifier(id)));
+                        let id_type = &self.context.valid_identifiers.get(&id).unwrap().0;
+                        return Ok(SyntaxTree::new(SyntaxNode::Identifier(id, id_type.clone())));
                     }
                 }
             }
 
             TokenType::OpenParen => self.parse_tuple_or_paren_expr(),
-            _ => Err(ParsingError::UnexpectedToken(next_token))
+            TokenType::OpenSquare => self.parse_array_literal(),
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         }
     }
+
+
+    fn parse_array_literal(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        let mut elems: Vec<SyntaxTree> = vec![];
+        loop {
+            elems.push(self.parse_expression()?);
+            let next_token = self.tokens.pop_front().unwrap();
+            match &next_token.token_type {
+                TokenType::Comma => continue,
+                TokenType::CloseSquare => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+            } 
+        }
+
+        let inner_type = get_expr_type(elems.get(0).unwrap(), &self.context)?;
+        Ok(SyntaxTree::new(SyntaxNode::ArrayLiteral(elems, inner_type)))
+    } 
 
 
     /// Used when it is unclear if the next set of tokens represents a parenthesized expression or
     /// a tuple. This can be determined by seeing if the first expression encountered ends with a
     /// comma, making it a tuple, or a close parenthesis, making it a parenthesized expression.
-    fn parse_tuple_or_paren_expr(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_tuple_or_paren_expr(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let expr = self.parse_expression()?;
         let next_token = self.tokens.pop_front().unwrap();
         match &next_token.token_type {
             TokenType::CloseParen => Ok(SyntaxTree::new(SyntaxNode::ParenExpr(Box::new(expr)))),
             TokenType::Comma => self.parse_tuple(expr),
-            _ => Err(ParsingError::UnexpectedToken(next_token))
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         }
     }
 
 
     /// Parses a tuple, which syntactically is a comma-separated list of 2 or more expressions, the
     /// whole thing of which is enclosed in parentheses.
-    fn parse_tuple(&mut self, first_expr: SyntaxTree) -> Result<SyntaxTree, ParsingError> {
+    fn parse_tuple(&mut self, first_expr: SyntaxTree) -> Result<SyntaxTree, Box<dyn Error>> {
         let mut expressions: Vec<SyntaxTree> = vec![first_expr];
         loop {
             expressions.push(self.parse_expression()?);
@@ -753,7 +791,7 @@ impl Parser {
             match &next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseParen => break,
-                _ => return Err(ParsingError::UnexpectedToken(next_token))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
             } 
         }
 
@@ -767,7 +805,7 @@ impl Parser {
     /// monad, as in Haskell, for example. This ensures that side effects, such as reading and
     /// writing from standard I/O, are properly ordered and are not parallelized, causing problems
     /// with out-of-order effects - this is why monads are never parallelized.
-    fn parse_do_block(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_do_block(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::OpenCurly));
 
