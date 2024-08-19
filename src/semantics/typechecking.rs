@@ -88,7 +88,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
                 }
             }
 
-            Ok(Type::new(SimpleType::Array(Box::new(inner_type.clone())), false, vec![]))
+            Ok(Type::new(SimpleType::Array(Box::new(inner_type.clone()), elems.len()), false, vec![]))
         }
 
         other => unimplemented!("Have not yet implemented {:?}", other)
@@ -158,7 +158,7 @@ fn get_binary_operation_type(op: String, l_type: Type, r_type: Type) -> Result<T
 } 
 
 
-fn is_constexpr(expr: &SyntaxTree) -> bool {
+pub fn is_constexpr(expr: &SyntaxTree) -> bool {
     match &expr.node {
         SyntaxNode::BinaryOperation(_, l, r) => is_constexpr(&l.clone()) && is_constexpr(&r.clone()),
         SyntaxNode::LeftAssocUnaryOperation(_, l) => is_constexpr(&l.clone()),
@@ -175,7 +175,7 @@ fn is_constexpr(expr: &SyntaxTree) -> bool {
 }
 
 
-fn fold_constexpr_index(expr: &SyntaxTree) -> usize {
+pub fn fold_constexpr_index(expr: &SyntaxTree) -> usize {
     match expr.node {
         SyntaxNode::IntLiteral(i) => i as usize,
         _ => panic!("Could not fold constexpr!")
@@ -193,13 +193,13 @@ mod tests {
     #[test]
     fn test_array_compatibility() {
         assert!(
-            Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I32, false, vec![]))), false, vec![])
-                .is_compatible_with(&Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I64, false, vec![]))), false, vec![])),
+            Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I32, false, vec![])), 5), false, vec![])
+                .is_compatible_with(&Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I64, false, vec![])), 5), false, vec![])),
         );
 
         assert!(
-            Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I64, false, vec![]))), false, vec![])
-                .is_compatible_with(&Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I32, false, vec![]))), false, vec![])),
+            Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I64, false, vec![])), 5), false, vec![])
+                .is_compatible_with(&Type::new(SimpleType::Array(Box::new(Type::new(SimpleType::I32, false, vec![])), 5), false, vec![])),
         )
     }
 

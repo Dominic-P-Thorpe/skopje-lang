@@ -24,7 +24,6 @@ use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 
-use crate::parser::types::SimpleType;
 use crate::{SyntaxNode, SyntaxTree};
 
 
@@ -172,12 +171,7 @@ impl Transpiler {
             SyntaxNode::BoolLiteral(true) => Ok("true".to_owned()),
             SyntaxNode::BoolLiteral(false) => Ok("false".to_owned()),
             SyntaxNode::Program(_) => panic!("Got program when I should not have!"),
-            SyntaxNode::Identifier(id, id_type) => {
-                match id_type.basic_type {
-                    SimpleType::Array(_) => Ok(format!("std::move({})", id)), 
-                    _ => Ok(id.to_owned())
-                }
-            },
+            SyntaxNode::Identifier(id, _) => Ok(id.to_owned()),
 
             SyntaxNode::FunctionCall(func_id, args) => {
                 let args: Vec<String> = args.iter()
@@ -279,10 +273,9 @@ impl Transpiler {
                 ))
             }
 
-            SyntaxNode::ArrayLiteral(elems, array_type) => {
+            SyntaxNode::ArrayLiteral(elems, _) => {
                 Ok(format!(
-                    "init_array<{}>({})",
-                    array_type.as_ctype_str(),
+                    "{{ {} }}",
                     elems.iter()
                          .map(|e| self.transpile_c_tree(e, indent).unwrap())
                          .collect::<Vec<String>>()

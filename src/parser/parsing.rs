@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 
-use crate::semantics::typechecking::get_expr_type;
+use crate::semantics::typechecking::{fold_constexpr_index, get_expr_type, is_constexpr};
 
 use super::types::SimpleType;
 use super::{errors::ParsingError, token::*, types::Type};
@@ -445,26 +445,30 @@ impl Parser {
             _ => vec![] // no generic
         };
 
-        let mut array_dimensions: usize = 0;
+        let mut final_type: Type = Type::new_str(basic_type, false, generics)?;
+
         loop {
             let next_token = self.tokens.get(0).unwrap();
-            let next_token_2 = self.tokens.get(1).unwrap();
-            match (&next_token.token_type, &next_token_2.token_type) {
-                (TokenType::OpenSquare, TokenType::CloseSquare) => {
-                    array_dimensions += 1;
+            match &next_token.token_type {
+                TokenType::OpenSquare => {
                     self.tokens.pop_front();
-                    self.tokens.pop_front();
-                },
+                    
+                    let size_expr = self.parse_expression()?;
+                    if !is_constexpr(&size_expr) {
+                        panic!("Array index must be a constexpr!");
+                    }
 
-                (TokenType::OpenSquare, _) => 
-                    return Err(Box::new(ParsingError::UnexpectedToken(next_token_2.clone()))),
+                    let size = fold_constexpr_index(&size_expr);
+                    
+                    let next_token = self.tokens.pop_front().unwrap();
+                    if let TokenType::CloseSquare = next_token.token_type {
+                        final_type = Type::new(SimpleType::Array(Box::new(final_type), size), false, vec![]);
+                    } else {
+                        return Err(Box::new(ParsingError::UnexpectedToken(next_token)));
+                    }
+                },
                 _ => break
             }
-        }
-
-        let mut final_type: Type = Type::new_str(basic_type, false, generics)?;
-        for _ in 0..array_dimensions {
-            final_type = Type::new(SimpleType::Array(Box::new(final_type)), false, vec![]);
         }
 
         Ok(final_type)
@@ -700,7 +704,7 @@ impl Parser {
                                     Box::new(root)
                                 )
                             ),
-                            SimpleType::Array(_) => SyntaxTree::new(
+                            SimpleType::Array(_, _) => SyntaxTree::new(
                                 SyntaxNode::ArrayIndexingOperation(
                                     Box::new(expr), 
                                     Box::new(root)
