@@ -164,6 +164,22 @@ impl Type {
     }
 
 
+    pub fn from_basic(basic_type: SimpleType) -> Self {
+        let monadic: bool = match basic_type {
+            SimpleType::IOMonad => true,
+            _ => false
+        };
+
+        Type {
+            dependencies: vec![], 
+            basic_type, 
+            monadic, 
+            linear: false, 
+            generics: vec![]
+        }
+    }
+
+
     /// Converts Skopje types to their closest equivalents in C using the stdint.h library.
     pub fn as_ctype_str(&self) -> String {
         let basic_type_str = self.basic_type.as_ctype_str().to_owned();

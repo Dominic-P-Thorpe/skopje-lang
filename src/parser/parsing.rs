@@ -49,8 +49,9 @@ pub enum SyntaxNode {
     WhileStmt(Box<SyntaxTree>, Vec<SyntaxTree>),
     // variable name, type, expression
     LetStmt(String, Type, Box<SyntaxTree>),
-    // variable name, new value expression
-    ReassignmentStmt(Box<SyntaxTree>, Box<SyntaxTree>),
+    // variable name, new value expression, type of the variable being reassigned
+    // type is needed so that is can be used when generating the C++ code
+    ReassignmentStmt(Box<SyntaxTree>, Box<SyntaxTree>, Type),
     // condition, body, optional else
     SelectionStatement(Box<SyntaxTree>, Vec<SyntaxTree>, Option<Vec<SyntaxTree>>),
     // binary operation, left side, right side
@@ -389,7 +390,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Semicolon));
 
-        Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(Box::new(lhs), Box::new(expr))))
+        Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(Box::new(lhs), Box::new(expr), lhs_type)))
     }
 
 

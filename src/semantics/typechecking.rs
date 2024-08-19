@@ -191,7 +191,7 @@ pub fn get_l_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box
 }
 
 
-fn get_array_inner_type(array: Type) -> Type {
+pub fn get_array_inner_type(array: Type) -> Type {
     match array.basic_type {
         SimpleType::Array(inner, _) => *inner,
         other => panic!("Expected array, got {:?}", other)
