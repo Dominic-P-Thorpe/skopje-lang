@@ -34,7 +34,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
         SyntaxNode::Identifier(_, id_type) => Ok(id_type.clone()),
         SyntaxNode::ParenExpr(expr) => get_expr_type(expr, context),
 
-        SyntaxNode::IndexingOperation(index, expr) => {
+        SyntaxNode::TupleIndexingOperation(index, expr) => {
             match get_expr_type(expr, context).unwrap().basic_type {
                 SimpleType::Tuple(types) => {
                     if !is_constexpr(index) {
@@ -45,6 +45,8 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
                 t => panic!("Cannot use indexing operation on type {:?}", t)
             }
         }
+
+        SyntaxNode::ArrayIndexingOperation(_, expr) => get_expr_type(expr, context),
 
         SyntaxNode::FunctionCall(id, args) 
         | SyntaxNode::FunctionCallStmt(id, args)=> {
@@ -162,7 +164,7 @@ fn is_constexpr(expr: &SyntaxTree) -> bool {
         SyntaxNode::LeftAssocUnaryOperation(_, l) => is_constexpr(&l.clone()),
         SyntaxNode::RightAssocUnaryOperation(_, r) => is_constexpr(&r.clone()),
         SyntaxNode::ParenExpr(expr) => is_constexpr(&expr.clone()),
-        SyntaxNode::IndexingOperation(index, expr) => is_constexpr(&index.clone()) && is_constexpr(&expr.clone()),
+        SyntaxNode::TupleIndexingOperation(index, expr) => is_constexpr(&index.clone()) && is_constexpr(&expr.clone()),
         SyntaxNode::TernaryExpression(c, t, f) => is_constexpr(&c.clone()) && is_constexpr(&t.clone()) && is_constexpr(&f.clone()),
         SyntaxNode::IntLiteral(_) 
         | SyntaxNode::BoolLiteral(_) 

@@ -57,7 +57,8 @@ pub enum SyntaxNode {
     BinaryOperation(String, Box<SyntaxTree>, Box<SyntaxTree>),
     RightAssocUnaryOperation(String, Box<SyntaxTree>),
     LeftAssocUnaryOperation(String, Box<SyntaxTree>),
-    IndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
+    TupleIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
+    ArrayIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
@@ -688,13 +689,25 @@ impl Parser {
                 }
 
                 TokenType::OpenSquare => {
+                    let root_type: Type = get_expr_type(&root, &self.context).unwrap();
                     let expr = self.parse_expression()?;
                     let next_token = self.tokens.pop_front().unwrap();
                     if let TokenType::CloseSquare = next_token.token_type {
-                        return Ok(SyntaxTree::new(SyntaxNode::IndexingOperation(
-                            Box::new(expr), 
-                            Box::new(root))
-                        ));
+                        return Ok(match root_type.basic_type {
+                            SimpleType::Tuple(_) => SyntaxTree::new(
+                                SyntaxNode::TupleIndexingOperation(
+                                    Box::new(expr), 
+                                    Box::new(root)
+                                )
+                            ),
+                            SimpleType::Array(_) => SyntaxTree::new(
+                                SyntaxNode::ArrayIndexingOperation(
+                                    Box::new(expr), 
+                                    Box::new(root)
+                                )
+                            ),
+                            _ => panic!("Expected tuple or array!")
+                        }) 
                     }
 
                     return Err(ParsingError::UnexpectedToken(next_token));
