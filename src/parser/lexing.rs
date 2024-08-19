@@ -249,6 +249,14 @@ impl Scanner {
             "?" => Ok(TokenType::Question),
             "," => Ok(TokenType::Comma),
 
+            "." => {
+                if let Some('.') = self.peek(line, 0) {
+                    self.advance();
+                    return Ok(TokenType::DoubleDot);
+                }
+                Ok(TokenType::Dot)
+            }
+
             ":" => {
                 if let Some(':') = self.peek(line, 0) {
                     self.advance();

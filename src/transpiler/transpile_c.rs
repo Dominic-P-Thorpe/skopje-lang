@@ -24,6 +24,8 @@ use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 
+use crate::parser::types::Type;
+use crate::semantics::typechecking::fold_constexpr_index;
 use crate::{SyntaxNode, SyntaxTree};
 
 
@@ -147,11 +149,15 @@ impl Transpiler {
                     + &self.transpile_c_tree(if_true, indent)? + " : " 
                     + &self.transpile_c_tree(if_false, indent)?),
             SyntaxNode::BinaryOperation(op, l, r) => {
-                // arrow operation cannot be handled in the same way as primitive operations found
-                // in C++ natively
+                // special handling for primitive operations not found in C++ natively
                 match op.as_str() {
                     "::" => Ok(format!("concatenate({}, {})", self.transpile_c_tree(l, indent)?, self.transpile_c_tree(r, indent)?)),
                     "->" => Ok(format!("{}.arrow({}.bind())", self.transpile_c_tree(l, indent)?, self.transpile_c_tree(r, indent)?)),
+                    ".." => {
+                        let start = fold_constexpr_index(&l);
+                        let end = fold_constexpr_index(&r);
+                        Ok(format!("array_range<int64_t, {}>({}, {})", usize::abs_diff(start, end), start, end))
+                    }
                     _ => Ok(format!("{} {} {}", self.transpile_c_tree(l, indent)?, op, self.transpile_c_tree(l, indent)?)) 
                 }
             }

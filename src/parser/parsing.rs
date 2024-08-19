@@ -382,7 +382,6 @@ impl Parser {
         let expr = self.parse_expression()?;
         let expr_type: Type = get_expr_type(&expr, &self.context).unwrap();
         let lhs_type: Type = get_l_expr_type(&lhs, &self.context).unwrap();
-        println!("{:?} = {:?}", lhs_type, expr_type);
         if !expr_type.is_compatible_with(&lhs_type) {
             panic!("Mismatch between variable and expression types!");
         }
@@ -635,7 +634,12 @@ impl Parser {
 
 
     fn parse_equality(&mut self) -> Result<SyntaxTree, ParsingError> {
-        parse_binary_operator!(self, parse_concatenation, DoubleEqual => "==", BangEqual => "!=")
+        parse_binary_operator!(self, parse_range, DoubleEqual => "==", BangEqual => "!=")
+    }
+
+
+    fn parse_range(&mut self) -> Result<SyntaxTree, ParsingError> {
+        parse_binary_operator!(self, parse_concatenation, DoubleDot => "..")
     }
 
 

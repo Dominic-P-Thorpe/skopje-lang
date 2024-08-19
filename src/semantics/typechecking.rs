@@ -17,9 +17,7 @@ use super::errors::TypeError;
 pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<dyn Error>> {
     match &expr.node {
         SyntaxNode::BinaryOperation(op, l, r) => get_binary_operation_type(
-            op.to_string(), 
-            get_expr_type(&*l, context)?, 
-            get_expr_type(&*r, context)?
+            op.to_string(), &*l, &*r, context
         ),
 
         SyntaxNode::LeftAssocUnaryOperation(op, arg)
@@ -124,7 +122,9 @@ fn get_unary_operation_type(op: String, arg: Type) -> Result<Type, Box<dyn Error
 }
 
 
-fn get_binary_operation_type(op: String, l_type: Type, r_type: Type) -> Result<Type, Box<dyn Error>> {
+fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context: &Context) -> Result<Type, Box<dyn Error>> {
+    let l_type: Type = get_expr_type(l, context)?;
+    let r_type: Type = get_expr_type(r, context)?;
     match op.as_str() {
         // two numerical arguments and a numerical output
         "+" | "-" | "*" | "/" | "**" | "%" | "&" | "|" | ">>" | ">>>" | "<<" => {
@@ -151,6 +151,14 @@ fn get_binary_operation_type(op: String, l_type: Type, r_type: Type) -> Result<T
                 panic!("Expected numerical types for operation {}, got {:?}", op, l_type)
             }
         },
+
+        ".." => {
+            if l_type.is_numeric() && r_type.is_numeric() && is_constexpr(l) && is_constexpr(r) {
+                Ok(Type::new(SimpleType::Array(Box::new(l_type), fold_constexpr_index(r) - fold_constexpr_index(l)), false, vec![]))
+            } else {
+                panic!("Expected numerical types for operation {}, got {:?}", op, l_type)
+            }
+        }
 
         // 2 array arguments and an array result
         "::" => {

@@ -47,6 +47,8 @@ pub enum TokenType {
     Colon,
     DoubleColon,
     Comma,
+    Dot,
+    DoubleDot,
     FnKeyword,
     ReturnKeyword,
     IfKeyword,

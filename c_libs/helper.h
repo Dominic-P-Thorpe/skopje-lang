@@ -11,6 +11,7 @@
 #include <array>
 #include <experimental/array>
 #include <algorithm>
+#include <concepts>
 #include "monad.h"
 
 /// @brief Returns true if the type param T is an `IOMonad`, and false otherwise 
@@ -67,6 +68,37 @@ std::array<T, N + M> concatenate(const std::array<T, N>& arr1, const std::array<
     std::copy(arr2.begin(), arr2.end(), result.begin() + N);
 
     return result;
+}
+
+
+/// Ensures that the given type parameter is an integer type
+template <typename T>
+concept Integer = std::is_integral_v<T>;
+
+
+/// @brief Creates an array of consecutive integers between the start (inclusive) and end 
+/// (exclusive) arguments. If the start is greater than the end, then the numbers in the array are
+/// reversed. If start == end, then the array is empty. 
+/// @tparam T The type of the elements of the array
+/// @tparam N The length of the array
+/// @param start The number at the start of the range (inclusive)
+/// @param end The number at the end of the array (exclusive)
+/// @return An ascending array of consecutive numbers if start > end, or descending if start < end,
+/// or an empty array if start == end.
+template <Integer T, std::size_t N>
+std::array<T, N> array_range(int64_t start, int64_t end) {
+    std::array<T, N> array;
+    if (start == end)
+        return {};
+
+    size_t index = 0;
+    for (int64_t i = start; i != end; start >= end ? i-- : i++) {
+        array[index] = i;
+        std::cout << index << ") " << i << "\n";
+        index++;
+    }
+
+    return array;
 }
 
 
