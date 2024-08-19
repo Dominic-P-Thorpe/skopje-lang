@@ -31,7 +31,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
         SyntaxNode::IntLiteral(_) => Ok(Type::new(SimpleType::I64, false, vec![])),
         SyntaxNode::StringLiteral(_) => Ok(Type::new(SimpleType::Str, false, vec![])),
         SyntaxNode::BoolLiteral(_) => Ok(Type::new(SimpleType::Bool, false, vec![])),
-        SyntaxNode::Identifier(_, id_type) => Ok(id_type.clone()),
+        SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id).unwrap().0.clone()),
         SyntaxNode::ParenExpr(expr) => get_expr_type(expr, context),
 
         SyntaxNode::TupleIndexingOperation(index, expr) => {
@@ -170,6 +170,25 @@ fn get_binary_operation_type(op: String, l_type: Type, r_type: Type) -> Result<T
         _ => panic!("Did not recognise operator {}", op)
     }
 } 
+
+
+/// Gets the type of an l-expression, which is composed of an identifier and potentially any
+/// number of array index operations.
+pub fn get_l_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<dyn Error>> {
+    match &expr.node {
+        SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id.as_str()).unwrap().0.clone()),
+        SyntaxNode::ArrayIndexingOperation(_, expr) => Ok(get_array_inner_type(get_l_expr_type(expr, context).unwrap())),
+        other => panic!("Invalid node {:?} in l-expression", other)
+    }
+}
+
+
+fn get_array_inner_type(array: Type) -> Type {
+    match array.basic_type {
+        SimpleType::Array(inner, _) => *inner,
+        other => panic!("Expected array, got {:?}", other)
+    }
+}
 
 
 pub fn is_constexpr(expr: &SyntaxTree) -> bool {

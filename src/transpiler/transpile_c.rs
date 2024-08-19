@@ -170,7 +170,7 @@ impl Transpiler {
             SyntaxNode::BoolLiteral(true) => Ok("true".to_owned()),
             SyntaxNode::BoolLiteral(false) => Ok("false".to_owned()),
             SyntaxNode::Program(_) => panic!("Got program when I should not have!"),
-            SyntaxNode::Identifier(id, _) => Ok(id.to_owned()),
+            SyntaxNode::Identifier(id) => Ok(id.to_owned()),
 
             SyntaxNode::FunctionCall(func_id, args) => {
                 let args: Vec<String> = args.iter()
@@ -246,7 +246,7 @@ impl Transpiler {
             SyntaxNode::ReassignmentStmt(id, expr) => Ok(format!(
                 "{}{} = {};",
                 "    ".repeat(indent), 
-                id,
+                self.transpile_c_tree(id, indent)?,
                 self.transpile_c_tree(expr, indent)?
             )),
 

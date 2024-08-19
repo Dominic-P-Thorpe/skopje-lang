@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 
-use crate::semantics::typechecking::{fold_constexpr_index, get_expr_type, is_constexpr};
+use crate::semantics::typechecking::{fold_constexpr_index, get_expr_type, get_l_expr_type, is_constexpr};
 
 use super::types::SimpleType;
 use super::{errors::ParsingError, token::*, types::Type};
@@ -50,7 +50,7 @@ pub enum SyntaxNode {
     // variable name, type, expression
     LetStmt(String, Type, Box<SyntaxTree>),
     // variable name, new value expression
-    ReassignmentStmt(String, Box<SyntaxTree>),
+    ReassignmentStmt(Box<SyntaxTree>, Box<SyntaxTree>),
     // condition, body, optional else
     SelectionStatement(Box<SyntaxTree>, Vec<SyntaxTree>, Option<Vec<SyntaxTree>>),
     // binary operation, left side, right side
@@ -58,6 +58,7 @@ pub enum SyntaxNode {
     RightAssocUnaryOperation(String, Box<SyntaxTree>),
     LeftAssocUnaryOperation(String, Box<SyntaxTree>),
     TupleIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
+    // index to get, stmt to index
     ArrayIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
@@ -73,7 +74,7 @@ pub enum SyntaxNode {
     ArrayLiteral(Vec<SyntaxTree>, Type),
     // store the type so that if the type is an std::unique_ptr we know to use std::move when we 
     // want to use it
-    Identifier(String, Type) 
+    Identifier(String) 
 }
 
 
@@ -344,7 +345,8 @@ impl Parser {
         let next_token = self.tokens.get(0).unwrap();
         match next_token.token_type {
             TokenType::OpenParen => self.parse_func_call_stmt(id),
-            TokenType::Equal => self.parse_reassignment(id),
+            TokenType::Equal
+            | TokenType::OpenSquare => self.parse_reassignment(id),
             _ => Err(ParsingError::UnexpectedToken(next_token.clone()))
         }
     }
@@ -357,18 +359,38 @@ impl Parser {
         }
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::Equal));
+        let lhs = match next_token.token_type {
+            TokenType::Equal => SyntaxTree::new(SyntaxNode::Identifier(id.clone())),
+            TokenType::OpenSquare => {
+                let expr = self.parse_expression()?;
+
+                let next_token = self.tokens.pop_front().unwrap();
+                assert!(matches!(next_token.token_type, TokenType::CloseSquare));
+
+                let next_token = self.tokens.pop_front().unwrap();
+                assert!(matches!(next_token.token_type, TokenType::Equal));
+
+                SyntaxTree::new(SyntaxNode::ArrayIndexingOperation(
+                    Box::new(expr),
+                    Box::new(SyntaxTree::new(SyntaxNode::Identifier(id.clone())))
+                ))
+            }
+
+            other => panic!("Invalid left expression, found {:?}", other)
+        };
 
         let expr = self.parse_expression()?;
         let expr_type: Type = get_expr_type(&expr, &self.context).unwrap();
-        if expr_type != self.context.valid_identifiers.get(&id).unwrap().0 {
+        let lhs_type: Type = get_l_expr_type(&lhs, &self.context).unwrap();
+        println!("{:?} = {:?}", lhs_type, expr_type);
+        if !expr_type.is_compatible_with(&lhs_type) {
             panic!("Mismatch between variable and expression types!");
         }
 
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Semicolon));
 
-        Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(id, Box::new(expr))))
+        Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(Box::new(lhs), Box::new(expr))))
     }
 
 
@@ -759,8 +781,7 @@ impl Parser {
 
                     _ => {
                         self.tokens.push_front(next_token);
-                        let id_type = &self.context.valid_identifiers.get(&id).unwrap().0;
-                        return Ok(SyntaxTree::new(SyntaxNode::Identifier(id, id_type.clone())));
+                        return Ok(SyntaxTree::new(SyntaxNode::Identifier(id)));
                     }
                 }
             }
