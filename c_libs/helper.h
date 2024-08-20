@@ -94,12 +94,38 @@ std::array<T, N> array_range(int64_t start, int64_t end) {
     size_t index = 0;
     for (int64_t i = start; i != end; start >= end ? i-- : i++) {
         array[index] = i;
-        std::cout << index << ") " << i << "\n";
         index++;
     }
 
     return array;
 }
 
+
+/// @brief Given an array, its size, and a start and end index, return a subarray of that array
+/// from the given start index to the given end index.
+/// @note Statically asserts that the end index of the subarray is within the bounds of the 
+/// original array
+/// @tparam T The type of the elements of the new and original array
+/// @tparam N The length of the original array
+/// @tparam S The start index
+/// @tparam E The end index
+/// @param original The array to create a subarray from
+/// @param start The start index of the subarray (inclusive)
+/// @param end The end index of the subarray (exclusive)
+/// @return The subarray of the original array within the window [start, end)
+template <typename T, std::size_t N, std::size_t S, std::size_t E>
+std::array<T, E - S> subarray(std::array<T, N> original, std::size_t start, std::size_t end) {
+    // assert that we are not trying to get a subarray from outside the bounds of the original array
+    static_assert(E < N); 
+    
+    // copy from the old array into the new array
+    std::array<T, E - S> new_array;
+    for (size_t i = start; i < end; i++) {
+        // i - start is to make sure that the index of new array is 0 + i and not start + i
+        new_array[i - start] = original[i];
+    }
+
+    return new_array;
+}
 
 #endif

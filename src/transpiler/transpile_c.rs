@@ -265,6 +265,14 @@ impl Transpiler {
             SyntaxNode::BoolLiteral(false) => Ok("false".to_owned()),
             SyntaxNode::Identifier(id) => Ok(id.to_owned()),
 
+            SyntaxNode::SubarrayOperation(root, root_type, start, end) => {
+                match &root_type.basic_type {
+                    SimpleType::Array(t, len) => 
+                        Ok(format!("subarray<{0}, {1}, {2}, {3}>({4}, {2}, {3})", t.as_ctype_str(), len, start, end, self.transpile_typed_expr_c(root, target)?)),
+                    other => panic!("Expected array, got {:?}", other)
+                }
+            }
+
             SyntaxNode::FunctionCall(func_id, args) => {
                 let args: Vec<String> = args.iter()
                                             .map(|arg| self.transpile_typed_expr_c(arg, &Type::from_basic(SimpleType::Void)).unwrap())

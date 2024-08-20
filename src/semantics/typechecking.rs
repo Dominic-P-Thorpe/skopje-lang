@@ -26,6 +26,14 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             get_expr_type(&*arg, context)?
         ),
 
+        SyntaxNode::SubarrayOperation(_, root_type, start, end) => {
+            match &root_type.basic_type {
+                SimpleType::Array(inner_type, _) => 
+                    Ok(Type::from_basic(SimpleType::Array(inner_type.clone(), end - start))),
+                other => panic!("Expected array, got {:?}", other)
+            }
+        }
+
         SyntaxNode::IntLiteral(_) => Ok(Type::new(SimpleType::I64, false, vec![])),
         SyntaxNode::StringLiteral(_) => Ok(Type::new(SimpleType::Str, false, vec![])),
         SyntaxNode::BoolLiteral(_) => Ok(Type::new(SimpleType::Bool, false, vec![])),

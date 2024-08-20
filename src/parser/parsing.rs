@@ -61,6 +61,8 @@ pub enum SyntaxNode {
     TupleIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
     // index to get, stmt to index
     ArrayIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
+    // array to get subarray of, type of original array, start index, end index
+    SubarrayOperation(Box<SyntaxTree>, Type, usize, usize),
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
@@ -727,6 +729,29 @@ impl Parser {
                 TokenType::OpenSquare => {
                     let root_type: Type = get_expr_type(&root, &self.context).unwrap();
                     let expr = self.parse_expression()?;
+
+                    // check if the expression is an array range, which means it is actually a
+                    // subarray instead
+                    match &expr.node {
+                        SyntaxNode::BinaryOperation(op, l, r) => {
+                            if op.as_str() == ".." {
+                                assert!(is_constexpr(&l));
+                                assert!(is_constexpr(&r));
+                                let start = fold_constexpr_index(&l);
+                                let end = fold_constexpr_index(&r);
+                                root = SyntaxTree::new(SyntaxNode::SubarrayOperation(
+                                    Box::new(root), root_type.clone(), start, end
+                                ));
+
+                                let next_token = self.tokens.pop_front().unwrap();
+                                assert!(matches!(next_token.token_type, TokenType::CloseSquare));
+                                break;
+                            }
+                        }
+
+                        _ => ()
+                    }
+
                     let next_token = self.tokens.pop_front().unwrap();
                     if let TokenType::CloseSquare = next_token.token_type {
                         return Ok(match root_type.basic_type {
