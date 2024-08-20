@@ -1,0 +1,6 @@
+fn main() -> i32 {
+    let array_2d: i32[3][3] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    let indexed: i32[3] = array_2d[1];
+    let double_indexed: i32 = array_2d[1][1];
+    return 1;
+}

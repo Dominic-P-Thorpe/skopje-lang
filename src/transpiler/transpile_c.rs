@@ -24,6 +24,8 @@ use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 
+use crate::parser::types::{Type, SimpleType};
+use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type};
 use crate::{SyntaxNode, SyntaxTree};
 
 
@@ -90,7 +92,7 @@ impl Transpiler {
 
 
     pub fn transpile_c(&mut self) -> Result<(), Box<dyn Error>> {
-        self.file.write(b"#include \"c_libs/helper.h\"\n\n")?;
+        self.file.write(b"#include \"c_libs/helper.h\"\n")?;
 
         if let SyntaxNode::Program(statements) = &self.ast.node.clone() {
             let mut statements_text: String = String::new();
@@ -138,51 +140,15 @@ impl Transpiler {
             }
 
             SyntaxNode::ReturnStmt(body) => {
-                let body_text = self.transpile_c_tree(&body, indent)?;
+                let body_text = self.transpile_typed_expr_c(&body, &Type::from_basic(SimpleType::Void))?;
                 Ok("    ".repeat(indent) + "return " + &body_text + ";")
             }
 
-            SyntaxNode::TernaryExpression(cond, if_true, if_false) =>
-                Ok(self.transpile_c_tree(cond, indent)? + " ? " 
-                    + &self.transpile_c_tree(if_true, indent)? + " : " 
-                    + &self.transpile_c_tree(if_false, indent)?),
-            SyntaxNode::BinaryOperation(op, l, r) => {
-                // arrow operation cannot be handled in the same way as primitive operations found
-                // in C++ natively
-                if op.as_str() == "->" {
-                    return Ok(format!("{}.arrow({}.bind())", self.transpile_c_tree(l, indent)?, self.transpile_c_tree(r, indent)?));
-                }
-                
-                Ok(format!("{} {} {}", self.transpile_c_tree(l, indent)?, op, self.transpile_c_tree(l, indent)?))
-            }
-            SyntaxNode::RightAssocUnaryOperation(op, r) => 
-                Ok(op.to_owned() + " " + &self.transpile_c_tree(r, indent)?),
-            SyntaxNode::LeftAssocUnaryOperation(op, l) => 
-                Ok(self.transpile_c_tree(l, indent)? + " " + op),
-            SyntaxNode::IndexingOperation(index, l) => 
-                Ok(format!("std::get<{}>({})", self.transpile_c_tree(index, indent)?, self.transpile_c_tree(l, indent)?)),
-            SyntaxNode::ParenExpr(expr) => 
-                Ok("(".to_owned() + &self.transpile_c_tree(expr, indent)? + ")"),
-            SyntaxNode::StringLiteral(s) => Ok(format!("\"{}\"", s)),
-            SyntaxNode::IntLiteral(n) => Ok(n.to_string()),
-            SyntaxNode::Identifier(id) => Ok(id.to_owned()),
-            SyntaxNode::BoolLiteral(true) => Ok("true".to_owned()),
-            SyntaxNode::BoolLiteral(false) => Ok("false".to_owned()),
             SyntaxNode::Program(_) => panic!("Got program when I should not have!"),
-            SyntaxNode::FunctionCall(func_id, args) => {
-                let args: Vec<String> = args.iter()
-                                            .map(|arg| self.transpile_c_tree(arg, indent).unwrap())
-                                            .collect();
-                if func_id == &String::from("print") {
-                    return Ok(format!("printf({})", args.first().unwrap()));
-                }
-
-                Ok(format!("{}({})", func_id, &args.join(", ")))
-            },
 
             SyntaxNode::FunctionCallStmt(func_id, args) => {
                 let args: Vec<String> = args.iter()
-                                            .map(|arg| self.transpile_c_tree(arg, indent).unwrap())
+                                            .map(|arg| self.transpile_typed_expr_c(arg, &Type::from_basic(SimpleType::Void)).unwrap())
                                             .collect();
                 if func_id == "print" {
                     return Ok(format!("{}printf({});", "    ".repeat(indent), args.first().unwrap()));
@@ -190,14 +156,14 @@ impl Transpiler {
                     return Ok(format!("{}readln({});", "    ".repeat(indent), args.first().unwrap()));
                 }
 
-                Ok(format!("{}({});", "    ".repeat(indent), args.join(", ")))
+                Ok(format!("{}{}({});", "    ".repeat(indent), func_id, args.join(", ")))
             },
 
             SyntaxNode::SelectionStatement(cond, if_body, None) => {
                 Ok(format!(
                     "{0}if ({1}) {{\n{2}\n{0}}}",
                     "    ".repeat(indent), 
-                    self.transpile_c_tree(cond, indent)?,
+                    self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
                     if_body.iter()
                            .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
                            .collect::<Vec<String>>()
@@ -209,7 +175,7 @@ impl Transpiler {
                 Ok(format!(
                     "{0}if ({1}) {{\n{2}\n{0}}} else {{\n{3}\n{0}}}", 
                     "    ".repeat(indent), 
-                    self.transpile_c_tree(cond, indent)?,
+                    self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
                     if_body.iter()
                            .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
                            .collect::<Vec<String>>()
@@ -224,7 +190,7 @@ impl Transpiler {
             SyntaxNode::WhileStmt(cond, body) => {
                 Ok(format!(
                     "{0}while ({1}) {{\n{2}{0}\n{0}}}\n", "    ".repeat(indent),
-                    self.transpile_c_tree(cond, indent)?,
+                    self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
                     body.iter()
                         .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
                         .collect::<Vec<String>>()
@@ -237,14 +203,14 @@ impl Transpiler {
                 "    ".repeat(indent), 
                 var_type.as_ctype_str(), 
                 id, 
-                self.transpile_c_tree(expr, indent)?
+                self.transpile_typed_expr_c(expr, var_type)?
             )),
 
-            SyntaxNode::ReassignmentStmt(id, expr) => Ok(format!(
+            SyntaxNode::ReassignmentStmt(id, expr, var_type) => Ok(format!(
                 "{}{} = {};",
                 "    ".repeat(indent), 
-                id,
-                self.transpile_c_tree(expr, indent)?
+                self.transpile_c_tree(id, indent)?,
+                self.transpile_typed_expr_c(expr, var_type)?
             )),
 
             SyntaxNode::MonadicExpr(body) => {
@@ -259,15 +225,86 @@ impl Transpiler {
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
             }
 
+            other => panic!("{:?} is not a valid node!", other)
+        }
+    }
+
+
+    fn transpile_typed_expr_c(&self, tree: &SyntaxTree, target: &Type) -> Result<String, Box<dyn Error>> {
+        match &tree.node {
+            SyntaxNode::TernaryExpression(cond, if_true, if_false) =>
+                Ok(self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))? + " ? " 
+                    + &self.transpile_typed_expr_c(if_true, target)? + " : " 
+                    + &self.transpile_typed_expr_c(if_false, target)?),
+            SyntaxNode::BinaryOperation(op, l, r) => {
+                // special handling for primitive operations not found in C++ natively
+                match op.as_str() {
+                    "::" => Ok(format!("concatenate({}, {})", self.transpile_typed_expr_c(l, target)?, self.transpile_typed_expr_c(r, target)?)),
+                    "->" => Ok(format!("{}.arrow({}.bind())", self.transpile_typed_expr_c(l, target)?, self.transpile_typed_expr_c(r, target)?)),
+                    ".." => {
+                        let start = fold_constexpr_index(&l);
+                        let end = fold_constexpr_index(&r);
+                        Ok(format!("array_range<{}, {}>({}, {})", get_array_inner_type(&target).as_ctype_str(), usize::abs_diff(start, end), start, end))
+                    }
+                    _ => Ok(format!("{} {} {}", self.transpile_typed_expr_c(l, target)?, op, self.transpile_typed_expr_c(l, target)?)) 
+                }
+            }
+            SyntaxNode::RightAssocUnaryOperation(op, r) => 
+                Ok(op.to_owned() + " " + &self.transpile_typed_expr_c(r, target)?),
+            SyntaxNode::LeftAssocUnaryOperation(op, l) => 
+                Ok(self.transpile_typed_expr_c(l, target)? + " " + op),
+            SyntaxNode::TupleIndexingOperation(index, l) => 
+                Ok(format!("std::get<{}>({})", self.transpile_typed_expr_c(index, target)?, self.transpile_typed_expr_c(l, target)?)),
+            SyntaxNode::ArrayIndexingOperation(index, l) => 
+                Ok(format!("{}[{}]", self.transpile_typed_expr_c(l, target)?, self.transpile_typed_expr_c(index, target)?)),
+            SyntaxNode::ParenExpr(expr) => 
+                Ok("(".to_owned() + &self.transpile_typed_expr_c(expr, target)? + ")"),
+            SyntaxNode::StringLiteral(s) => Ok(format!("\"{}\"", s)),
+            SyntaxNode::IntLiteral(n) => Ok(n.to_string()),
+            SyntaxNode::BoolLiteral(true) => Ok("true".to_owned()),
+            SyntaxNode::BoolLiteral(false) => Ok("false".to_owned()),
+            SyntaxNode::Identifier(id) => Ok(id.to_owned()),
+
+            SyntaxNode::SubarrayOperation(root, root_type, start, end) => {
+                match &root_type.basic_type {
+                    SimpleType::Array(_, len) => 
+                        Ok(format!("subarray<{0}, {1}, {2}, {3}>({4}, {2}, {3})", get_array_inner_type(&target).as_ctype_str(), len, start, end, self.transpile_typed_expr_c(root, target)?)),
+                    other => panic!("Expected array, got {:?}", other)
+                }
+            }
+
+            SyntaxNode::FunctionCall(func_id, args) => {
+                let args: Vec<String> = args.iter()
+                                            .map(|arg| self.transpile_typed_expr_c(arg, &Type::from_basic(SimpleType::Void)).unwrap())
+                                            .collect();
+                if func_id == &String::from("print") {
+                    return Ok(format!("printf({})", args.first().unwrap()));
+                }
+
+                Ok(format!("{}({})", func_id, &args.join(", ")))
+            },
+
             SyntaxNode::TupleLiteral(expressions) => {
                 Ok(format!(
                     "std::make_tuple({})",
                     expressions.iter()
-                               .map(|e| self.transpile_c_tree(e, indent).unwrap())
+                               .map(|e| self.transpile_typed_expr_c(e, target).unwrap())
                                .collect::<Vec<String>>()
                                .join(", ")
                 ))
             }
+
+            SyntaxNode::ArrayLiteral(elems, _) => {
+                Ok(format!(
+                    "std::experimental::make_array({})",
+                    elems.iter()
+                         .map(|e| self.transpile_typed_expr_c(e, target).unwrap())
+                         .collect::<Vec<String>>()
+                         .join(", ")
+                ))
+            }
+
+            other => panic!("{:?} is not a valid expression node!", other)
         }
     }
 }

@@ -12,6 +12,7 @@ pub enum SimpleType {
     Void,
     Bool,
     Tuple(Vec<Type>),
+    Array(Box<Type>, usize), // inner type, array size
     Function(Box<Type>, Vec<Type>), // return type, vec of params
     IOMonad
 }
@@ -44,6 +45,7 @@ impl SimpleType {
             Self::Str => String::from("std::string"),
             Self::Bool => String::from("bool"),
             Self::IOMonad => String::from("IOMonad"),
+            Self::Array(inner_type, size) => format!("std::array<{}, {}>", inner_type.as_ctype_str(), size),
             Self::Tuple(types) => format!(
                 "std::tuple<{}>",
                 types.iter().map(|t| t.as_ctype_str()).collect::<Vec<String>>().join(", ")
@@ -59,11 +61,7 @@ impl SimpleType {
 
 
     pub fn is_compatible_with(&self, other: &Self) -> bool {
-        if self == other {
-            return true;
-        }
-
-        if self.is_numeric() && other.is_numeric() {
+        if self == other || (self.is_numeric() && other.is_numeric()) {
             return true;
         }
 
@@ -85,6 +83,16 @@ impl SimpleType {
             }
 
             return false;
+        }
+
+        if let Self::Array(self_inner, self_size) = self {
+            if let Self::Array(other_inner, other_size) = other {
+                if self_inner.is_compatible_with(&other_inner) && self_size == other_size {
+                    return true;
+                }
+
+                return false;
+            }
         }
 
         false
@@ -152,6 +160,22 @@ impl Type {
             monadic, 
             linear, 
             generics
+        }
+    }
+
+
+    pub fn from_basic(basic_type: SimpleType) -> Self {
+        let monadic: bool = match basic_type {
+            SimpleType::IOMonad => true,
+            _ => false
+        };
+
+        Type {
+            dependencies: vec![], 
+            basic_type, 
+            monadic, 
+            linear: false, 
+            generics: vec![]
         }
     }
 

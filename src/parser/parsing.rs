@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 
-use crate::semantics::typechecking::get_expr_type;
+use crate::semantics::typechecking::{fold_constexpr_index, get_expr_type, get_l_expr_type, is_constexpr};
 
 use super::types::SimpleType;
 use super::{errors::ParsingError, token::*, types::Type};
@@ -49,15 +49,20 @@ pub enum SyntaxNode {
     WhileStmt(Box<SyntaxTree>, Vec<SyntaxTree>),
     // variable name, type, expression
     LetStmt(String, Type, Box<SyntaxTree>),
-    // variable name, new value expression
-    ReassignmentStmt(String, Box<SyntaxTree>),
+    // variable name, new value expression, type of the variable being reassigned
+    // type is needed so that is can be used when generating the C++ code
+    ReassignmentStmt(Box<SyntaxTree>, Box<SyntaxTree>, Type),
     // condition, body, optional else
     SelectionStatement(Box<SyntaxTree>, Vec<SyntaxTree>, Option<Vec<SyntaxTree>>),
     // binary operation, left side, right side
     BinaryOperation(String, Box<SyntaxTree>, Box<SyntaxTree>),
     RightAssocUnaryOperation(String, Box<SyntaxTree>),
     LeftAssocUnaryOperation(String, Box<SyntaxTree>),
-    IndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
+    TupleIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
+    // index to get, stmt to index
+    ArrayIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
+    // array to get subarray of, type of original array, start index, end index
+    SubarrayOperation(Box<SyntaxTree>, Type, usize, usize),
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
@@ -69,7 +74,10 @@ pub enum SyntaxNode {
     IntLiteral(u64),
     BoolLiteral(bool),
     TupleLiteral(Vec<SyntaxTree>),
-    Identifier(String)
+    ArrayLiteral(Vec<SyntaxTree>, Type),
+    // store the type so that if the type is an std::unique_ptr we know to use std::move when we 
+    // want to use it
+    Identifier(String) 
 }
 
 
@@ -264,8 +272,7 @@ impl Parser {
         // get all the params into the vec (which are comma separated) until the last ")" token 
         // is reached
         loop {
-            let p_id: String; 
-            let p_type: Type;
+            let p_id: String;
 
             let next_token = self.tokens.pop_front().unwrap();
             if let TokenType::Identifier(id) = next_token.token_type {
@@ -281,12 +288,7 @@ impl Parser {
             }
 
             // TODO: make this work with all param types
-            let next_token = self.tokens.pop_front().unwrap();
-            if let TokenType::Identifier(t) = next_token.token_type {
-                p_type = Type::new_str(t, false, vec![]).unwrap();
-            } else {
-                return Err(ParsingError::UnexpectedToken(next_token));
-            }
+            let p_type: Type = self.parse_type().unwrap();
 
             params.push((p_id.clone(), p_type.clone()));
             self.context.add_var(p_id, p_type);
@@ -346,7 +348,8 @@ impl Parser {
         let next_token = self.tokens.get(0).unwrap();
         match next_token.token_type {
             TokenType::OpenParen => self.parse_func_call_stmt(id),
-            TokenType::Equal => self.parse_reassignment(id),
+            TokenType::Equal
+            | TokenType::OpenSquare => self.parse_reassignment(id),
             _ => Err(ParsingError::UnexpectedToken(next_token.clone()))
         }
     }
@@ -359,18 +362,37 @@ impl Parser {
         }
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::Equal));
+        let lhs = match next_token.token_type {
+            TokenType::Equal => SyntaxTree::new(SyntaxNode::Identifier(id.clone())),
+            TokenType::OpenSquare => {
+                let expr = self.parse_expression()?;
+
+                let next_token = self.tokens.pop_front().unwrap();
+                assert!(matches!(next_token.token_type, TokenType::CloseSquare));
+
+                let next_token = self.tokens.pop_front().unwrap();
+                assert!(matches!(next_token.token_type, TokenType::Equal));
+
+                SyntaxTree::new(SyntaxNode::ArrayIndexingOperation(
+                    Box::new(expr),
+                    Box::new(SyntaxTree::new(SyntaxNode::Identifier(id.clone())))
+                ))
+            }
+
+            other => panic!("Invalid left expression, found {:?}", other)
+        };
 
         let expr = self.parse_expression()?;
         let expr_type: Type = get_expr_type(&expr, &self.context).unwrap();
-        if expr_type != self.context.valid_identifiers.get(&id).unwrap().0 {
+        let lhs_type: Type = get_l_expr_type(&lhs, &self.context).unwrap();
+        if !expr_type.is_compatible_with(&lhs_type) {
             panic!("Mismatch between variable and expression types!");
         }
 
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Semicolon));
 
-        Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(id, Box::new(expr))))
+        Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(Box::new(lhs), Box::new(expr), lhs_type)))
     }
 
 
@@ -447,7 +469,33 @@ impl Parser {
             _ => vec![] // no generic
         };
 
-        Ok(Type::new_str(basic_type, false, generics)?)
+        let mut final_type: Type = Type::new_str(basic_type, false, generics)?;
+
+        loop {
+            let next_token = self.tokens.get(0).unwrap();
+            match &next_token.token_type {
+                TokenType::OpenSquare => {
+                    self.tokens.pop_front();
+                    
+                    let size_expr = self.parse_expression()?;
+                    if !is_constexpr(&size_expr) {
+                        panic!("Array index must be a constexpr!");
+                    }
+
+                    let size = fold_constexpr_index(&size_expr);
+                    
+                    let next_token = self.tokens.pop_front().unwrap();
+                    if let TokenType::CloseSquare = next_token.token_type {
+                        final_type = Type::new(SimpleType::Array(Box::new(final_type), size), false, vec![]);
+                    } else {
+                        return Err(Box::new(ParsingError::UnexpectedToken(next_token)));
+                    }
+                },
+                _ => break
+            }
+        }
+
+        Ok(final_type)
     }
 
 
@@ -589,7 +637,12 @@ impl Parser {
 
 
     fn parse_equality(&mut self) -> Result<SyntaxTree, ParsingError> {
-        parse_binary_operator!(self, parse_scalar_comparisons, DoubleEqual => "==", BangEqual => "!=")
+        parse_binary_operator!(self, parse_concatenation, DoubleEqual => "==", BangEqual => "!=")
+    }
+    
+    
+    fn parse_concatenation(&mut self) -> Result<SyntaxTree, ParsingError> {
+        parse_binary_operator!(self, parse_scalar_comparisons, DoubleColon => "::")
     }
 
 
@@ -650,7 +703,7 @@ impl Parser {
     }
 
     fn parse_left_assoc_unary(&mut self) -> Result<SyntaxTree, ParsingError> {
-        let mut root: SyntaxTree = self.parse_factor()?;
+        let mut root: SyntaxTree = self.parse_range().unwrap();
         loop {
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
@@ -669,13 +722,50 @@ impl Parser {
                 }
 
                 TokenType::OpenSquare => {
+                    let root_type: Type = get_expr_type(&root, &self.context).unwrap();
                     let expr = self.parse_expression()?;
+
+                    // check if the expression is an array range, which means it is actually a
+                    // subarray instead
+                    match &expr.node {
+                        SyntaxNode::BinaryOperation(op, l, r) => {
+                            if op.as_str() == ".." {
+                                assert!(is_constexpr(&l));
+                                assert!(is_constexpr(&r));
+                                let start = fold_constexpr_index(&l);
+                                let end = fold_constexpr_index(&r);
+                                root = SyntaxTree::new(SyntaxNode::SubarrayOperation(
+                                    Box::new(root), root_type.clone(), start, end
+                                ));
+
+                                let next_token = self.tokens.pop_front().unwrap();
+                                assert!(matches!(next_token.token_type, TokenType::CloseSquare));
+                                continue;
+                            }
+                        }
+
+                        _ => ()
+                    }
+
+                    // this is an indexing operation
                     let next_token = self.tokens.pop_front().unwrap();
                     if let TokenType::CloseSquare = next_token.token_type {
-                        return Ok(SyntaxTree::new(SyntaxNode::IndexingOperation(
-                            Box::new(expr), 
-                            Box::new(root))
-                        ));
+                        root = match root_type.basic_type {
+                            SimpleType::Tuple(_) => SyntaxTree::new(
+                                SyntaxNode::TupleIndexingOperation(
+                                    Box::new(expr), 
+                                    Box::new(root)
+                                )
+                            ),
+                            SimpleType::Array(_, _) => SyntaxTree::new(
+                                SyntaxNode::ArrayIndexingOperation(
+                                    Box::new(expr), 
+                                    Box::new(root)
+                                )
+                            ),
+                            _ => panic!("Expected tuple or array!")
+                        };
+                        continue;
                     }
 
                     return Err(ParsingError::UnexpectedToken(next_token));
@@ -693,8 +783,13 @@ impl Parser {
     }
 
 
+    fn parse_range(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        parse_binary_operator!(self, parse_factor, DoubleDot => "..")
+    }
+
+
     /// Parses a factor, which is a literal, function invocation, or parenthesized expression.
-    fn parse_factor(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_factor(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s))),
@@ -724,28 +819,46 @@ impl Parser {
             }
 
             TokenType::OpenParen => self.parse_tuple_or_paren_expr(),
-            _ => Err(ParsingError::UnexpectedToken(next_token))
+            TokenType::OpenSquare => self.parse_array_literal(),
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         }
     }
+
+
+    fn parse_array_literal(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        let mut elems: Vec<SyntaxTree> = vec![];
+        loop {
+            elems.push(self.parse_expression()?);
+            let next_token = self.tokens.pop_front().unwrap();
+            match &next_token.token_type {
+                TokenType::Comma => continue,
+                TokenType::CloseSquare => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+            } 
+        }
+
+        let inner_type = get_expr_type(elems.get(0).unwrap(), &self.context)?;
+        Ok(SyntaxTree::new(SyntaxNode::ArrayLiteral(elems, inner_type)))
+    } 
 
 
     /// Used when it is unclear if the next set of tokens represents a parenthesized expression or
     /// a tuple. This can be determined by seeing if the first expression encountered ends with a
     /// comma, making it a tuple, or a close parenthesis, making it a parenthesized expression.
-    fn parse_tuple_or_paren_expr(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_tuple_or_paren_expr(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let expr = self.parse_expression()?;
         let next_token = self.tokens.pop_front().unwrap();
         match &next_token.token_type {
             TokenType::CloseParen => Ok(SyntaxTree::new(SyntaxNode::ParenExpr(Box::new(expr)))),
             TokenType::Comma => self.parse_tuple(expr),
-            _ => Err(ParsingError::UnexpectedToken(next_token))
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         }
     }
 
 
     /// Parses a tuple, which syntactically is a comma-separated list of 2 or more expressions, the
     /// whole thing of which is enclosed in parentheses.
-    fn parse_tuple(&mut self, first_expr: SyntaxTree) -> Result<SyntaxTree, ParsingError> {
+    fn parse_tuple(&mut self, first_expr: SyntaxTree) -> Result<SyntaxTree, Box<dyn Error>> {
         let mut expressions: Vec<SyntaxTree> = vec![first_expr];
         loop {
             expressions.push(self.parse_expression()?);
@@ -753,7 +866,7 @@ impl Parser {
             match &next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseParen => break,
-                _ => return Err(ParsingError::UnexpectedToken(next_token))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
             } 
         }
 
@@ -767,7 +880,7 @@ impl Parser {
     /// monad, as in Haskell, for example. This ensures that side effects, such as reading and
     /// writing from standard I/O, are properly ordered and are not parallelized, causing problems
     /// with out-of-order effects - this is why monads are never parallelized.
-    fn parse_do_block(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_do_block(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::OpenCurly));
 

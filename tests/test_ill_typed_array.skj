@@ -1,0 +1,3 @@
+fn main() {
+    let bad_array: i32[] = [true, false];
+}
