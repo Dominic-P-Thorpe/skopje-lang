@@ -154,7 +154,7 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
 
         ".." => {
             if l_type.is_numeric() && r_type.is_numeric() && is_constexpr(l) && is_constexpr(r) {
-                Ok(Type::new(SimpleType::Array(Box::new(l_type), fold_constexpr_index(r) - fold_constexpr_index(l)), false, vec![]))
+                Ok(Type::new(SimpleType::Array(Box::new(l_type), usize::abs_diff(fold_constexpr_index(r), fold_constexpr_index(l))), false, vec![]))
             } else {
                 panic!("Expected numerical types for operation {}, got {:?}", op, l_type)
             }

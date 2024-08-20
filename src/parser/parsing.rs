@@ -635,17 +635,17 @@ impl Parser {
 
 
     fn parse_equality(&mut self) -> Result<SyntaxTree, ParsingError> {
-        parse_binary_operator!(self, parse_range, DoubleEqual => "==", BangEqual => "!=")
+        parse_binary_operator!(self, parse_concatenation, DoubleEqual => "==", BangEqual => "!=")
     }
-
-
-    fn parse_range(&mut self) -> Result<SyntaxTree, ParsingError> {
-        parse_binary_operator!(self, parse_concatenation, DoubleDot => "..")
-    }
-
-
+    
+    
     fn parse_concatenation(&mut self) -> Result<SyntaxTree, ParsingError> {
-        parse_binary_operator!(self, parse_scalar_comparisons, DoubleColon => "::")
+        parse_binary_operator!(self, parse_range, DoubleColon => "::")
+    }
+    
+    
+    fn parse_range(&mut self) -> Result<SyntaxTree, ParsingError> {
+        parse_binary_operator!(self, parse_scalar_comparisons, DoubleDot => "..")
     }
 
 
