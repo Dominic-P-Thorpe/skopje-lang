@@ -244,7 +244,7 @@ impl Transpiler {
                     ".." => {
                         let start = fold_constexpr_index(&l);
                         let end = fold_constexpr_index(&r);
-                        Ok(format!("array_range<{}, {}>({}, {})", get_array_inner_type(target.clone()).as_ctype_str(), usize::abs_diff(start, end), start, end))
+                        Ok(format!("array_range<{}, {}>({}, {})", get_array_inner_type(&target).as_ctype_str(), usize::abs_diff(start, end), start, end))
                     }
                     _ => Ok(format!("{} {} {}", self.transpile_typed_expr_c(l, target)?, op, self.transpile_typed_expr_c(l, target)?)) 
                 }
@@ -267,8 +267,8 @@ impl Transpiler {
 
             SyntaxNode::SubarrayOperation(root, root_type, start, end) => {
                 match &root_type.basic_type {
-                    SimpleType::Array(t, len) => 
-                        Ok(format!("subarray<{0}, {1}, {2}, {3}>({4}, {2}, {3})", t.as_ctype_str(), len, start, end, self.transpile_typed_expr_c(root, target)?)),
+                    SimpleType::Array(_, len) => 
+                        Ok(format!("subarray<{0}, {1}, {2}, {3}>({4}, {2}, {3})", get_array_inner_type(&target).as_ctype_str(), len, start, end, self.transpile_typed_expr_c(root, target)?)),
                     other => panic!("Expected array, got {:?}", other)
                 }
             }

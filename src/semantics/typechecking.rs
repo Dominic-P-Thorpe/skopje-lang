@@ -26,7 +26,8 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             get_expr_type(&*arg, context)?
         ),
 
-        SyntaxNode::SubarrayOperation(_, root_type, start, end) => {
+        SyntaxNode::SubarrayOperation(root, _, start, end) => {
+            let root_type = get_expr_type(&root, context)?;
             match &root_type.basic_type {
                 SimpleType::Array(inner_type, _) => 
                     Ok(Type::from_basic(SimpleType::Array(inner_type.clone(), end - start))),
@@ -52,7 +53,12 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             }
         }
 
-        SyntaxNode::ArrayIndexingOperation(_, expr) => get_expr_type(expr, context),
+        SyntaxNode::ArrayIndexingOperation(_, expr) => {
+            match get_expr_type(expr, context)?.basic_type {
+                SimpleType::Array(inner, _) => Ok(*inner),
+                other => panic!("Expected array, got {:?}", other)
+            }
+        }
 
         SyntaxNode::FunctionCall(id, args) 
         | SyntaxNode::FunctionCallStmt(id, args)=> {
@@ -193,15 +199,15 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
 pub fn get_l_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<dyn Error>> {
     match &expr.node {
         SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id.as_str()).unwrap().0.clone()),
-        SyntaxNode::ArrayIndexingOperation(_, expr) => Ok(get_array_inner_type(get_l_expr_type(expr, context).unwrap())),
+        SyntaxNode::ArrayIndexingOperation(_, expr) => Ok(get_array_inner_type(&get_l_expr_type(expr, context).unwrap())),
         other => panic!("Invalid node {:?} in l-expression", other)
     }
 }
 
 
-pub fn get_array_inner_type(array: Type) -> Type {
-    match array.basic_type {
-        SimpleType::Array(inner, _) => *inner,
+pub fn get_array_inner_type(array: &Type) -> Type {
+    match &array.basic_type {
+        SimpleType::Array(inner, _) => *inner.clone(),
         other => panic!("Expected array, got {:?}", other)
     }
 }
@@ -275,6 +281,15 @@ mod tests {
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
+
+
+    #[test]
+    fn test_multidimensional_array() {
+        let scanner = Scanner::new("tests/test_multidimensional_array.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
 
 
     #[test]

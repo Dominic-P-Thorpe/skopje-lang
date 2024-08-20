@@ -642,12 +642,7 @@ impl Parser {
     
     
     fn parse_concatenation(&mut self) -> Result<SyntaxTree, ParsingError> {
-        parse_binary_operator!(self, parse_range, DoubleColon => "::")
-    }
-    
-    
-    fn parse_range(&mut self) -> Result<SyntaxTree, ParsingError> {
-        parse_binary_operator!(self, parse_scalar_comparisons, DoubleDot => "..")
+        parse_binary_operator!(self, parse_scalar_comparisons, DoubleColon => "::")
     }
 
 
@@ -708,7 +703,7 @@ impl Parser {
     }
 
     fn parse_left_assoc_unary(&mut self) -> Result<SyntaxTree, ParsingError> {
-        let mut root: SyntaxTree = self.parse_factor().unwrap();
+        let mut root: SyntaxTree = self.parse_range().unwrap();
         loop {
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
@@ -745,16 +740,17 @@ impl Parser {
 
                                 let next_token = self.tokens.pop_front().unwrap();
                                 assert!(matches!(next_token.token_type, TokenType::CloseSquare));
-                                break;
+                                continue;
                             }
                         }
 
                         _ => ()
                     }
 
+                    // this is an indexing operation
                     let next_token = self.tokens.pop_front().unwrap();
                     if let TokenType::CloseSquare = next_token.token_type {
-                        return Ok(match root_type.basic_type {
+                        root = match root_type.basic_type {
                             SimpleType::Tuple(_) => SyntaxTree::new(
                                 SyntaxNode::TupleIndexingOperation(
                                     Box::new(expr), 
@@ -768,7 +764,8 @@ impl Parser {
                                 )
                             ),
                             _ => panic!("Expected tuple or array!")
-                        }) 
+                        };
+                        continue;
                     }
 
                     return Err(ParsingError::UnexpectedToken(next_token));
@@ -783,6 +780,11 @@ impl Parser {
         }
 
         Ok(root)
+    }
+
+
+    fn parse_range(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        parse_binary_operator!(self, parse_factor, DoubleDot => "..")
     }
 
 
