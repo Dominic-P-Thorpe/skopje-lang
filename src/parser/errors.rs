@@ -5,7 +5,7 @@ use super::token::Token;
 
 #[derive(Debug, Clone)]
 pub enum LexingError {
-    UnrecognizedToken(String, u64, u64),
+    UnrecognizedToken(String, usize, usize),
     InvalidEscapeCharacter(char),
     NonTerminatedString
 }

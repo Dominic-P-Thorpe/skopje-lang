@@ -44,9 +44,9 @@ use super::token::*;
 pub struct Scanner {
     pub tokens: Vec<Token>, // current stream of tokens
     source: String, // the source file from which the tokens are taken
-    start: u64, // the start column of the token
-    current: u64, // the current position of the scanner cursor
-    line: u64 // the current line in the source code being processed
+    start: usize, // the start column of the token
+    current: usize, // the current position of the scanner cursor
+    line: usize // the current line in the source code being processed
 }
 
 

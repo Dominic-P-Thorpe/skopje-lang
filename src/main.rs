@@ -15,7 +15,7 @@ fn main() {
     // println!("Tokens: {:#?}", scanner.tokens);
     let mut parser = Parser::new(scanner.tokens);
     let ast = parser.parse().unwrap();
-    // println!("{:#?}", ast);
+    println!("{:#?}", ast);
     let mut transpiler = Transpiler::new(ast, "out.cpp");
     println!("{:#?}", transpiler.transpile_c().unwrap());
 }

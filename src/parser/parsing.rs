@@ -10,6 +10,7 @@ use super::{errors::ParsingError, token::*, types::Type};
 macro_rules! parse_binary_operator {
     ($self:ident, $next:ident, $($op_type:ident => $op_str:expr),*) => {{
         let mut root: SyntaxTree = $self.$next()?;
+        let (root_line, root_col) = (root.start_line, root.start_index);
 
         loop {
             let next_token = $self.tokens.pop_front().unwrap();
@@ -21,7 +22,7 @@ macro_rules! parse_binary_operator {
                             $op_str.to_owned(),
                             Box::new(root),
                             Box::new(right),
-                        ));
+                        ), root_line, root_col);
                     }
                 )*
 
@@ -86,17 +87,15 @@ pub enum SyntaxNode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SyntaxTree {
     pub node: SyntaxNode,
-    start_index: u64,
-    start_line: u64,
-    end_index: u64,
-    end_line: u64
+    start_index: usize,
+    start_line: usize
 }
 
 
 impl SyntaxTree {
-    pub fn new(node: SyntaxNode) -> Self {
+    pub fn new(node: SyntaxNode, start_line: usize, start_index: usize) -> Self {
         SyntaxTree {
-            node, start_index: 0, start_line: 0, end_index: 0, end_line: 0
+            node, start_index, start_line
         }
     }
 }
@@ -199,12 +198,12 @@ impl Parser {
         let mut top_level_constructs: Vec<SyntaxTree> = vec![];
         while let Some(next_token) = self.tokens.pop_front() {
             match &next_token.token_type {
-                TokenType::FnKeyword => top_level_constructs.push(self.parse_function()?),
+                TokenType::FnKeyword => top_level_constructs.push(self.parse_function(next_token.line_number, next_token.col_number)?),
                 _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
             }
         }
 
-        Ok(SyntaxTree::new(SyntaxNode::Program(top_level_constructs)))
+        Ok(SyntaxTree::new(SyntaxNode::Program(top_level_constructs), 0, 0))
     }
 
 
@@ -231,7 +230,7 @@ impl Parser {
     ///     }
     /// }
     /// ```
-    fn parse_function(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_function(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let context_window_id: usize = self.context.start_new_context_window();
 
         let id_token = self.tokens.pop_front().unwrap();
@@ -262,7 +261,7 @@ impl Parser {
 
             self.context.end_context_window(&context_window_id);
             return Ok(SyntaxTree::new(
-                SyntaxNode::Function(id, params, return_type, body)
+                SyntaxNode::Function(id, params, return_type, body), line_num, col_num
             ));
         }
 
@@ -346,12 +345,12 @@ impl Parser {
     fn parse_statement(&mut self) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
-            TokenType::ReturnKeyword => self.parse_return(),
-            TokenType::IfKeyword => self.parse_selection(),
-            TokenType::WhileKeyword => self.parse_while_loop(),
-            TokenType::Identifier(id) => self.parse_func_call_or_reassignment_stmt(id),
-            TokenType::LetKeyword => self.parse_let_statement(),
-            TokenType::ForKeyword => self.parse_for_loop(),
+            TokenType::ReturnKeyword => self.parse_return(next_token.line_number, next_token.col_number),
+            TokenType::IfKeyword => self.parse_selection(next_token.line_number, next_token.col_number),
+            TokenType::WhileKeyword => self.parse_while_loop(next_token.line_number, next_token.col_number),
+            TokenType::Identifier(id) => self.parse_func_call_or_reassignment_stmt(id, next_token.line_number, next_token.col_number),
+            TokenType::LetKeyword => self.parse_let_statement(next_token.line_number, next_token.col_number),
+            TokenType::ForKeyword => self.parse_for_loop(next_token.line_number, next_token.col_number),
             _ => Err(ParsingError::UnexpectedToken(next_token))
         }
     }
@@ -360,7 +359,7 @@ impl Parser {
     /// Parses a for loop which should conform to the EBNF:
     /// 
     /// `FOR_LOOP ::= "for" "(" <IDENTIFIER> ":" <TYPE> "in" <EXPRESSION> ")" "{" <BODY> "}"`
-    fn parse_for_loop(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_for_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::OpenParen));
 
@@ -395,22 +394,22 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::CloseCurly));
 
-        Ok(SyntaxTree::new(SyntaxNode::ForStmt(iterator_id, iterator_type, Box::new(iterator_expr), body)))
+        Ok(SyntaxTree::new(SyntaxNode::ForStmt(iterator_id, iterator_type, Box::new(iterator_expr), body), line_num, col_num))
     }
 
 
-    fn parse_func_call_or_reassignment_stmt(&mut self, id: String) -> Result<SyntaxTree, ParsingError> {
+    fn parse_func_call_or_reassignment_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.get(0).unwrap();
         match next_token.token_type {
-            TokenType::OpenParen => self.parse_func_call_stmt(id),
+            TokenType::OpenParen => self.parse_func_call_stmt(id, line_num, col_num),
             TokenType::Equal
-            | TokenType::OpenSquare => self.parse_reassignment(id),
+            | TokenType::OpenSquare => self.parse_reassignment(id, line_num, col_num),
             _ => Err(ParsingError::UnexpectedToken(next_token.clone()))
         }
     }
 
 
-    fn parse_reassignment(&mut self, id: String) -> Result<SyntaxTree, ParsingError> {
+    fn parse_reassignment(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         match self.context.valid_identifiers.get(&id) {
             Some(_) => (),
             None => panic!("Semantic error: The identifier {} could not be found!", id)
@@ -418,7 +417,7 @@ impl Parser {
 
         let next_token = self.tokens.pop_front().unwrap();
         let lhs = match next_token.token_type {
-            TokenType::Equal => SyntaxTree::new(SyntaxNode::Identifier(id.clone())),
+            TokenType::Equal => SyntaxTree::new(SyntaxNode::Identifier(id.clone()), line_num, col_num),
             TokenType::OpenSquare => {
                 let expr = self.parse_expression()?;
 
@@ -430,8 +429,8 @@ impl Parser {
 
                 SyntaxTree::new(SyntaxNode::ArrayIndexingOperation(
                     Box::new(expr),
-                    Box::new(SyntaxTree::new(SyntaxNode::Identifier(id.clone())))
-                ))
+                    Box::new(SyntaxTree::new(SyntaxNode::Identifier(id.clone()), line_num, col_num))
+                ), line_num, col_num)
             }
 
             other => panic!("Invalid left expression, found {:?}", other)
@@ -447,14 +446,14 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::Semicolon));
 
-        Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(Box::new(lhs), Box::new(expr), lhs_type)))
+        Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(Box::new(lhs), Box::new(expr), lhs_type), line_num, col_num))
     }
 
 
     /// Parses a let statement
     /// 
     /// Let statements have the form: `"let" <identifier> ":" <type> "=" <expression> ";"`.
-    fn parse_let_statement(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_let_statement(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         let id: String = match next_token.token_type {
             TokenType::Identifier(id) => id,
@@ -479,7 +478,7 @@ impl Parser {
         assert!(matches!(next_token.token_type, TokenType::Semicolon));
 
         self.context.add_var(id.clone(), var_type.clone());
-        Ok(SyntaxTree::new(SyntaxNode::LetStmt(id, var_type, Box::new(expression))))
+        Ok(SyntaxTree::new(SyntaxNode::LetStmt(id, var_type, Box::new(expression)), line_num, col_num))
     }
 
 
@@ -576,7 +575,7 @@ impl Parser {
     }
 
 
-    fn parse_while_loop(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_while_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::OpenParen));
 
@@ -595,11 +594,11 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::CloseCurly));
 
-        Ok(SyntaxTree::new(SyntaxNode::WhileStmt(Box::new(expr), body)))
+        Ok(SyntaxTree::new(SyntaxNode::WhileStmt(Box::new(expr), body), line_num, col_num))
     }
 
 
-    fn parse_func_call_stmt(&mut self, id: String) -> Result<SyntaxTree, ParsingError> {
+    fn parse_func_call_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         // check that the function exists in this context
         match self.context.verify_function(&id) {
             Some(_) => (),
@@ -610,7 +609,7 @@ impl Parser {
         if let TokenType::OpenParen = next_token.token_type {
             let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
             if let TokenType::Semicolon = self.tokens.pop_front().unwrap().token_type {
-                let expr = SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments));
+                let expr = SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments), line_num, col_num);
                 get_expr_type(&expr, &self.context).unwrap();
                 return Ok(expr);
             }
@@ -620,10 +619,10 @@ impl Parser {
     }
 
 
-    fn parse_return(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_return(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let expr = self.parse_expression()?;
         if let TokenType::Semicolon = self.tokens.pop_front().unwrap().token_type {
-            return Ok(SyntaxTree::new(SyntaxNode::ReturnStmt(Box::new(expr))));
+            return Ok(SyntaxTree::new(SyntaxNode::ReturnStmt(Box::new(expr)), line_num, col_num));
         }
 
         Err(ParsingError::MissingSemicolon(0))
@@ -641,6 +640,7 @@ impl Parser {
     /// See [`Parser::parse_func_body()`] for examples of use.
     fn parse_expression(&mut self) -> Result<SyntaxTree, ParsingError> {
         let left = self.parse_logical_or()?;
+        let (left_line, left_col) = (left.start_line, left.start_index);
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::Question => {
@@ -650,7 +650,7 @@ impl Parser {
                     let false_expr: SyntaxTree = self.parse_expression()?;
                     return Ok(SyntaxTree::new(SyntaxNode::TernaryExpression(
                         Box::new(left), Box::new(true_expr), Box::new(false_expr)
-                    )));
+                    ), left_line, left_col));
 
                 }
 
@@ -732,22 +732,22 @@ impl Parser {
             TokenType::Minus => Ok(SyntaxTree::new(SyntaxNode::RightAssocUnaryOperation(
                 "-".to_owned(),
                 Box::new(self.parse_right_assoc_unary()?),
-            ))),
+            ), next_token.line_number, next_token.col_number)),
 
             TokenType::Plus => Ok(SyntaxTree::new(SyntaxNode::RightAssocUnaryOperation(
                 "+".to_owned(),
                 Box::new(self.parse_right_assoc_unary()?),
-            ))),
+            ), next_token.line_number, next_token.col_number)),
 
             TokenType::Bang => Ok(SyntaxTree::new(SyntaxNode::RightAssocUnaryOperation(
                 "!".to_owned(),
                 Box::new(self.parse_right_assoc_unary()?),
-            ))),
+            ), next_token.line_number, next_token.col_number)),
 
             TokenType::Complement => Ok(SyntaxTree::new(SyntaxNode::RightAssocUnaryOperation(
                 "~".to_owned(),
                 Box::new(self.parse_right_assoc_unary()?),
-            ))),
+            ), next_token.line_number, next_token.col_number)),
 
             // End of this level of precedence
             _ => {
@@ -766,14 +766,14 @@ impl Parser {
                     root = SyntaxTree::new(SyntaxNode::LeftAssocUnaryOperation(
                         "++".to_owned(),
                         Box::new(root),
-                    ));
+                    ), next_token.line_number, next_token.col_number);
                 }
 
                 TokenType::DoubleMinus => {
                     root = SyntaxTree::new(SyntaxNode::LeftAssocUnaryOperation(
                         "--".to_owned(),
                         Box::new(root),
-                    ));
+                    ), next_token.line_number, next_token.col_number);
                 }
 
                 TokenType::OpenSquare => {
@@ -791,7 +791,7 @@ impl Parser {
                                 let end = fold_constexpr_index(&r);
                                 root = SyntaxTree::new(SyntaxNode::SubarrayOperation(
                                     Box::new(root), root_type.clone(), start, end
-                                ));
+                                ), expr.start_line, expr.start_index);
 
                                 let next_token = self.tokens.pop_front().unwrap();
                                 assert!(matches!(next_token.token_type, TokenType::CloseSquare));
@@ -810,13 +810,13 @@ impl Parser {
                                 SyntaxNode::TupleIndexingOperation(
                                     Box::new(expr), 
                                     Box::new(root)
-                                )
+                                ), next_token.line_number, next_token.col_number
                             ),
                             SimpleType::Array(_, _) => SyntaxTree::new(
                                 SyntaxNode::ArrayIndexingOperation(
                                     Box::new(expr), 
                                     Box::new(root)
-                                )
+                                ), next_token.line_number, next_token.col_number
                             ),
                             _ => panic!("Expected tuple or array!")
                         };
@@ -847,9 +847,9 @@ impl Parser {
     fn parse_factor(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
-            TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s))),
-            TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n))),
-            TokenType::BoolLiteral(b) => Ok(SyntaxTree::new(SyntaxNode::BoolLiteral(b))),
+            TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s), next_token.line_number, next_token.col_number)),
+            TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n), next_token.line_number, next_token.col_number)),
+            TokenType::BoolLiteral(b) => Ok(SyntaxTree::new(SyntaxNode::BoolLiteral(b), next_token.line_number, next_token.col_number)),
             TokenType::DoKeyword => self.parse_do_block(),
 
             TokenType::Identifier(id) => {
@@ -859,28 +859,28 @@ impl Parser {
                     None => panic!("Semantic error: The identifier {} could not be found!", id)
                 }
 
-                let next_token = self.tokens.pop_front().unwrap();
-                match next_token.token_type {
+                let func_call_paren = self.tokens.pop_front().unwrap();
+                match func_call_paren.token_type {
                     TokenType::OpenParen => { // function call
                         let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
-                        return Ok(SyntaxTree::new(SyntaxNode::FunctionCall(id, arguments)));
+                        return Ok(SyntaxTree::new(SyntaxNode::FunctionCall(id, arguments), func_call_paren.line_number, func_call_paren.col_number));
                     }
 
                     _ => {
-                        self.tokens.push_front(next_token);
-                        return Ok(SyntaxTree::new(SyntaxNode::Identifier(id)));
+                        self.tokens.push_front(func_call_paren);
+                        return Ok(SyntaxTree::new(SyntaxNode::Identifier(id), next_token.line_number, next_token.col_number));
                     }
                 }
             }
 
             TokenType::OpenParen => self.parse_tuple_or_paren_expr(),
-            TokenType::OpenSquare => self.parse_array_literal(),
+            TokenType::OpenSquare => self.parse_array_literal(next_token.line_number, next_token.col_number),
             _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         }
     }
 
 
-    fn parse_array_literal(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_array_literal(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let mut elems: Vec<SyntaxTree> = vec![];
         loop {
             elems.push(self.parse_expression()?);
@@ -893,7 +893,7 @@ impl Parser {
         }
 
         let inner_type = get_expr_type(elems.get(0).unwrap(), &self.context)?;
-        Ok(SyntaxTree::new(SyntaxNode::ArrayLiteral(elems, inner_type)))
+        Ok(SyntaxTree::new(SyntaxNode::ArrayLiteral(elems, inner_type), line_num, col_num))
     } 
 
 
@@ -904,8 +904,8 @@ impl Parser {
         let expr = self.parse_expression()?;
         let next_token = self.tokens.pop_front().unwrap();
         match &next_token.token_type {
-            TokenType::CloseParen => Ok(SyntaxTree::new(SyntaxNode::ParenExpr(Box::new(expr)))),
-            TokenType::Comma => self.parse_tuple(expr),
+            TokenType::CloseParen => Ok(SyntaxTree::new(SyntaxNode::ParenExpr(Box::new(expr)), next_token.line_number, next_token.col_number)),
+            TokenType::Comma => self.parse_tuple(expr, next_token.line_number, next_token.col_number),
             _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         }
     }
@@ -913,7 +913,7 @@ impl Parser {
 
     /// Parses a tuple, which syntactically is a comma-separated list of 2 or more expressions, the
     /// whole thing of which is enclosed in parentheses.
-    fn parse_tuple(&mut self, first_expr: SyntaxTree) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_tuple(&mut self, first_expr: SyntaxTree, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let mut expressions: Vec<SyntaxTree> = vec![first_expr];
         loop {
             expressions.push(self.parse_expression()?);
@@ -925,7 +925,7 @@ impl Parser {
             } 
         }
 
-        Ok(SyntaxTree::new(SyntaxNode::TupleLiteral(expressions)))
+        Ok(SyntaxTree::new(SyntaxNode::TupleLiteral(expressions), line_num, col_num))
     }
 
 
@@ -937,6 +937,7 @@ impl Parser {
     /// with out-of-order effects - this is why monads are never parallelized.
     fn parse_do_block(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
+        let (line, col) = (next_token.line_number, next_token.col_number);
         assert!(matches!(next_token.token_type, TokenType::OpenCurly));
 
         let body = self.parse_stmt_block()?;
@@ -944,7 +945,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::CloseCurly));
 
-        Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(body)))
+        Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(body), line, col))
     }
 
 
@@ -975,7 +976,7 @@ impl Parser {
     }
 
 
-    fn parse_selection(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_selection(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         // parse the condition
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::OpenParen));
@@ -1028,6 +1029,6 @@ impl Parser {
             }
         };
 
-        Ok(SyntaxTree::new(SyntaxNode::SelectionStatement(Box::new(cond), if_body, else_body)))
+        Ok(SyntaxTree::new(SyntaxNode::SelectionStatement(Box::new(cond), if_body, else_body), line_num, col_num))
     }
 }

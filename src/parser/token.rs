@@ -70,8 +70,8 @@ pub enum TokenType {
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
-    pub line_number: u64,
-    pub col_number: u64
+    pub line_number: usize,
+    pub col_number: usize
 }
 
 
@@ -83,7 +83,7 @@ impl Token {
     /// ```
     /// Token::new(TokenType::Identifier("my_id"), "my_id".to_owned(), 5, 20);
     /// ```
-    pub fn new(token_type: TokenType, lexeme: String, line_number: u64, col_number: u64) -> Self {
+    pub fn new(token_type: TokenType, lexeme: String, line_number: usize, col_number: usize) -> Self {
         Self {
             token_type, lexeme, line_number, col_number
         }
