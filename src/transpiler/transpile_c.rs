@@ -310,10 +310,13 @@ impl Transpiler {
             }
 
             SyntaxNode::ArrayLiteral(elems, _) => {
+
                 Ok(format!(
-                    "std::experimental::make_array({})",
+                    "make_array<{}, {}>({})",
+                    get_array_inner_type(&target).as_ctype_str(),
+                    3,
                     elems.iter()
-                         .map(|e| self.transpile_typed_expr_c(e, target).unwrap())
+                         .map(|e| self.transpile_typed_expr_c(e, &get_array_inner_type(&target)).unwrap())
                          .collect::<Vec<String>>()
                          .join(", ")
                 ))

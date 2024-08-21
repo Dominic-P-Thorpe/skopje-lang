@@ -9,6 +9,8 @@
 #include <string>
 #include <tuple>
 #include <array>
+#include <utility>
+#include <cstdint>
 #include <experimental/array>
 #include <algorithm>
 #include <concepts>
@@ -129,9 +131,24 @@ std::array<T, E - S> subarray(std::array<T, N> original, std::size_t start, std:
 }
 
 
-template <typename T, typename... U>
-constexpr auto make_array(U&&... values) -> std::array<T, sizeof...(U)> {
-    return { { static_cast<T>(std::forward<U>(values))... } };
+/// @brief Creates an array of the given length with elements of the given type.
+/// @tparam T The type of the elements of the array
+/// @tparam ...U Variadic template for the number of arguments
+/// @tparam N The size of the array to be created
+/// @param ...values The values to go into the array
+/// @return The newly created array
+template <typename T, std::size_t N, typename... U>
+std::array<T, N> make_array(U&&... values) {
+    static_assert(sizeof...(values) == N, "Number of values must match the size of the array.");
+
+    std::array<T, N> arr;
+    T temp[] = { static_cast<T>(std::forward<U>(values))... };
+    
+    for (std::size_t i = 0; i < N; ++i) {
+        arr[i] = temp[i];
+    }
+
+    return arr;
 }
 
 #endif
