@@ -1,0 +1,7 @@
+fn main() -> u32 {
+    for (i: i32 in 5) {
+        return 0;
+    }
+    
+    return 1;
+}

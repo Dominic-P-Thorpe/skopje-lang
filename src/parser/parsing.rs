@@ -117,8 +117,18 @@ pub struct Context {
 impl Context {
     pub fn new() -> Self {
         let mut valid_identifiers: HashMap<String, (Type, usize)> = HashMap::new();
-        valid_identifiers.insert("print".to_owned(), (Type::new(SimpleType::Void, false, vec![]), 0));
-        valid_identifiers.insert("readln".to_owned(), (Type::new(SimpleType::Void, false, vec![]), 0));
+        valid_identifiers.insert("print".to_owned(), (Type::new(SimpleType::Function (
+            Box::new(Type::from_basic(SimpleType::IOMonad)), vec![
+                Type::from_basic(SimpleType::Str)
+            ]), 
+            false, vec![]), 0)
+        );
+        valid_identifiers.insert("readln".to_owned(), (Type::new(SimpleType::Function (
+            Box::new(Type::from_basic(SimpleType::IOMonad)), vec![
+                Type::from_basic(SimpleType::Str)
+            ]), 
+            false, vec![]), 0)
+        );
 
         Context {
             valid_identifiers,
@@ -379,6 +389,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert!(matches!(next_token.token_type, TokenType::OpenCurly));
 
+        self.context.add_var(iterator_id.clone(), iterator_type.clone());
         let body = self.parse_stmt_block()?;
 
         let next_token = self.tokens.pop_front().unwrap();

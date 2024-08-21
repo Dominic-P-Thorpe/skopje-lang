@@ -128,4 +128,10 @@ std::array<T, E - S> subarray(std::array<T, N> original, std::size_t start, std:
     return new_array;
 }
 
+
+template <typename T, typename... U>
+constexpr auto make_array(U&&... values) -> std::array<T, sizeof...(U)> {
+    return { { static_cast<T>(std::forward<U>(values))... } };
+}
+
 #endif

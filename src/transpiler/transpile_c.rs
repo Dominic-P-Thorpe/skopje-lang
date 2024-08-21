@@ -224,7 +224,7 @@ impl Transpiler {
             SyntaxNode::ReassignmentStmt(id, expr, var_type) => Ok(format!(
                 "{}{} = {};",
                 "    ".repeat(indent), 
-                self.transpile_c_tree(id, indent)?,
+                self.transpile_typed_expr_c(id, var_type)?,
                 self.transpile_typed_expr_c(expr, var_type)?
             )),
 
@@ -321,5 +321,20 @@ impl Transpiler {
 
             other => panic!("{:?} is not a valid expression node!", other)
         }
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use crate::parser::parsing::Parser;
+    use crate::parser::lexing::Scanner;
+
+
+    #[test]
+    fn test_for_loop() {
+        let scanner = Scanner::new("tests/test_for_loop.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
     }
 }
