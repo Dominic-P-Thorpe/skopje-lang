@@ -375,6 +375,8 @@ impl Scanner {
                             "if" => return  Ok(TokenType::IfKeyword),
                             "else" => return Ok(TokenType::ElseKeyword),
                             "while" => return Ok(TokenType::WhileKeyword),
+                            "for" => return Ok(TokenType::ForKeyword),
+                            "in" => return Ok(TokenType::InKeyword),
                             "let" => return Ok(TokenType::LetKeyword),
                             "do" => return Ok(TokenType::DoKeyword),
                             "true" => return Ok(TokenType::BoolLiteral(true)),
