@@ -186,10 +186,25 @@ impl Transpiler {
                              .join("\n")
                 )) 
             }
+
+            SyntaxNode::ForStmt(iterator_name, iterator_type, iterator_expr, body) => {
+                Ok(format!(
+                    "{0}for ({1} {2} : {3}) {{\n{4}\n{0}}}\n",
+                    "    ".repeat(indent),
+                    iterator_type.as_ctype_str(),
+                    iterator_name,
+                    self.transpile_typed_expr_c(iterator_expr, iterator_type)?,
+                    body.iter()
+                        .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
+                        .collect::<Vec<String>>()
+                        .join("\n")
+                ))
+            }
             
             SyntaxNode::WhileStmt(cond, body) => {
                 Ok(format!(
-                    "{0}while ({1}) {{\n{2}{0}\n{0}}}\n", "    ".repeat(indent),
+                    "{0}while ({1}) {{\n{2}{0}\n{0}}}\n", 
+                    "    ".repeat(indent),
                     self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
                     body.iter()
                         .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
@@ -209,7 +224,7 @@ impl Transpiler {
             SyntaxNode::ReassignmentStmt(id, expr, var_type) => Ok(format!(
                 "{}{} = {};",
                 "    ".repeat(indent), 
-                self.transpile_c_tree(id, indent)?,
+                self.transpile_typed_expr_c(id, var_type)?,
                 self.transpile_typed_expr_c(expr, var_type)?
             )),
 
@@ -295,10 +310,13 @@ impl Transpiler {
             }
 
             SyntaxNode::ArrayLiteral(elems, _) => {
+
                 Ok(format!(
-                    "std::experimental::make_array({})",
+                    "make_array<{}, {}>({})",
+                    get_array_inner_type(&target).as_ctype_str(),
+                    3,
                     elems.iter()
-                         .map(|e| self.transpile_typed_expr_c(e, target).unwrap())
+                         .map(|e| self.transpile_typed_expr_c(e, &get_array_inner_type(&target)).unwrap())
                          .collect::<Vec<String>>()
                          .join(", ")
                 ))
@@ -306,5 +324,20 @@ impl Transpiler {
 
             other => panic!("{:?} is not a valid expression node!", other)
         }
+    }
+}
+
+
+#[cfg(test)]
+mod test {
+    use crate::parser::parsing::Parser;
+    use crate::parser::lexing::Scanner;
+
+
+    #[test]
+    fn test_for_loop() {
+        let scanner = Scanner::new("tests/test_for_loop.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
     }
 }

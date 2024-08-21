@@ -326,4 +326,22 @@ mod tests {
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
+
+
+    #[test]
+    #[should_panic]
+    fn test_for_loop_no_array() {
+        let scanner = Scanner::new("tests/test_for_loop_no_array.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_for_loop_inconsistent_iter_type() {
+        let scanner = Scanner::new("tests/test_for_loop_inconsistent_iter_type.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
 }

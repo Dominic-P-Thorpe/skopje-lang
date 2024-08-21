@@ -1,0 +1,7 @@
+fn main() -> u32 {
+    for (i: bool in [1, 2, 3, 4, 5]) {
+        return 0;
+    }
+    
+    return 1;
+}
