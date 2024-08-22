@@ -28,7 +28,7 @@ impl error::Error for LexingError {}
 #[derive(Debug, Clone)]
 pub enum ParsingError {
     UnexpectedToken(Token),
-    MissingSemicolon(u64),
+    MissingSemicolon(usize),
     InvalidTypeName(String)
 }
 

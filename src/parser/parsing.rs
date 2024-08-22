@@ -625,7 +625,7 @@ impl Parser {
             return Ok(SyntaxTree::new(SyntaxNode::ReturnStmt(Box::new(expr)), line_num, col_num));
         }
 
-        Err(ParsingError::MissingSemicolon(0))
+        Err(ParsingError::MissingSemicolon(line_num))
     }
 
 
