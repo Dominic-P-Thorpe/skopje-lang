@@ -39,6 +39,16 @@ macro_rules! parse_binary_operator {
 }
 
 
+macro_rules! assert_token_type {
+    ($token:ident, $token_type:ident) => {
+        match $token.token_type {
+            TokenType::$token_type => (),
+            _ => return Err(Box::new(ParsingError::UnexpectedToken($token)))
+        }
+    };
+}
+
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum SyntaxNode {
     Program(Vec<SyntaxTree>),
@@ -236,22 +246,22 @@ impl Parser {
         let id_token = self.tokens.pop_front().unwrap();
         if let TokenType::Identifier(id) = id_token.token_type {
             let open_paren = self.tokens.pop_front().unwrap();
-            assert!(matches!(open_paren.token_type, TokenType::OpenParen));
+            assert_token_type!(open_paren, OpenParen);
 
             let params: Vec<(String, Type)> = self.parse_func_params()?;
 
             let arrow = self.tokens.pop_front().unwrap();
-            assert!(matches!(arrow.token_type, TokenType::Arrow));
+            assert_token_type!(arrow, Arrow);
 
             let return_type = self.parse_type().unwrap();
 
             let open_body = self.tokens.pop_front().unwrap();
-            assert!(matches!(open_body.token_type, TokenType::OpenCurly));
+            assert_token_type!(open_body, OpenCurly);
             
             let body = self.parse_stmt_block()?;
             
             let close_body = self.tokens.pop_front().unwrap();
-            assert!(matches!(close_body.token_type, TokenType::CloseCurly));
+            assert_token_type!(close_body, CloseCurly);
             
             // add this function to the valid functions available in this context
             let func_type = Type::new(SimpleType::Function(
@@ -269,7 +279,7 @@ impl Parser {
     }
 
 
-    fn parse_func_params(&mut self) -> Result<Vec<(String, Type)>, ParsingError> {
+    fn parse_func_params(&mut self) -> Result<Vec<(String, Type)>, Box<dyn Error>> {
         let mut params: Vec<(String, Type)> = vec![];
         let next_token = self.tokens.pop_front().unwrap();
         // return an empty vec if there are no parameters
@@ -289,13 +299,13 @@ impl Parser {
             if let TokenType::Identifier(id) = next_token.token_type {
                 p_id = id;
             } else {
-                return Err(ParsingError::UnexpectedToken(next_token));
+                return Err(Box::new(ParsingError::UnexpectedToken(next_token)));
             }
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
                 TokenType::Colon => (),
-                _ => return Err(ParsingError::UnexpectedToken(next_token))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
             }
 
             // TODO: make this work with all param types
@@ -308,7 +318,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::CloseParen => break,
                 TokenType::Comma => continue,
-                _ => return Err(ParsingError::UnexpectedToken(next_token))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
             }
         }
 
@@ -325,7 +335,7 @@ impl Parser {
     ///  - variable declarations and reassignments
     ///  - expressions
     ///  - if-else statements
-    fn parse_stmt_block(&mut self) -> Result<Vec<SyntaxTree>, ParsingError> {
+    fn parse_stmt_block(&mut self) -> Result<Vec<SyntaxTree>, Box<dyn Error>> {
         let context_window_id: usize = self.context.start_new_context_window();
         let mut statements: Vec<SyntaxTree> = vec![];
         loop {
@@ -342,7 +352,7 @@ impl Parser {
     }
 
 
-    fn parse_statement(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_statement(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::ReturnKeyword => self.parse_return(next_token.line_number, next_token.col_number),
@@ -351,7 +361,7 @@ impl Parser {
             TokenType::Identifier(id) => self.parse_func_call_or_reassignment_stmt(id, next_token.line_number, next_token.col_number),
             TokenType::LetKeyword => self.parse_let_statement(next_token.line_number, next_token.col_number),
             TokenType::ForKeyword => self.parse_for_loop(next_token.line_number, next_token.col_number),
-            _ => Err(ParsingError::UnexpectedToken(next_token))
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         }
     }
 
@@ -359,23 +369,23 @@ impl Parser {
     /// Parses a for loop which should conform to the EBNF:
     /// 
     /// `FOR_LOOP ::= "for" "(" <IDENTIFIER> ":" <TYPE> "in" <EXPRESSION> ")" "{" <BODY> "}"`
-    fn parse_for_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
+    fn parse_for_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::OpenParen));
+        assert_token_type!(next_token, OpenParen);
 
         let next_token = self.tokens.pop_front().unwrap();
         let iterator_id: String = match next_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(ParsingError::UnexpectedToken(next_token))
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         };
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::Colon));
+        assert_token_type!(next_token, Colon);
 
         let iterator_type = self.parse_type().unwrap();
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::InKeyword));
+        assert_token_type!(next_token, InKeyword);
 
         let iterator_expr = self.parse_expression()?;
         let iterator_expr_type = get_expr_type(&iterator_expr, &self.context).unwrap();
@@ -384,32 +394,32 @@ impl Parser {
         }
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::CloseParen));
+        assert_token_type!(next_token, CloseParen);
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::OpenCurly));
+        assert_token_type!(next_token, OpenCurly);
 
         self.context.add_var(iterator_id.clone(), iterator_type.clone());
         let body = self.parse_stmt_block()?;
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+        assert_token_type!(next_token, CloseCurly);
 
         Ok(SyntaxTree::new(SyntaxNode::ForStmt(iterator_id, iterator_type, Box::new(iterator_expr), body), line_num, col_num))
     }
 
 
-    fn parse_func_call_or_reassignment_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
+    fn parse_func_call_or_reassignment_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.get(0).unwrap();
         match next_token.token_type {
             TokenType::OpenParen => self.parse_func_call_stmt(id, line_num, col_num),
             TokenType::Equal
             | TokenType::OpenSquare => self.parse_reassignment(id, line_num, col_num),
-            _ => Err(ParsingError::UnexpectedToken(next_token.clone()))
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token.clone())))
         }
     }
 
 
-    fn parse_reassignment(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
+    fn parse_reassignment(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         match self.context.valid_identifiers.get(&id) {
             Some(_) => (),
             None => panic!("Semantic error: The identifier {} could not be found!", id)
@@ -422,10 +432,10 @@ impl Parser {
                 let expr = self.parse_expression()?;
 
                 let next_token = self.tokens.pop_front().unwrap();
-                assert!(matches!(next_token.token_type, TokenType::CloseSquare));
+                assert_token_type!(next_token, CloseSquare);
 
                 let next_token = self.tokens.pop_front().unwrap();
-                assert!(matches!(next_token.token_type, TokenType::Equal));
+                assert_token_type!(next_token, Equal);
 
                 SyntaxTree::new(SyntaxNode::ArrayIndexingOperation(
                     Box::new(expr),
@@ -444,7 +454,7 @@ impl Parser {
         }
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::Semicolon));
+        assert_token_type!(next_token, Semicolon);
 
         Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(Box::new(lhs), Box::new(expr), lhs_type), line_num, col_num))
     }
@@ -453,20 +463,20 @@ impl Parser {
     /// Parses a let statement
     /// 
     /// Let statements have the form: `"let" <identifier> ":" <type> "=" <expression> ";"`.
-    fn parse_let_statement(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
+    fn parse_let_statement(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         let id: String = match next_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(ParsingError::UnexpectedToken(next_token))
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
         };
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::Colon));
+        assert_token_type!(next_token, Colon);
 
         let var_type = self.parse_type().unwrap();
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::Equal));
+        assert_token_type!(next_token, Equal);
 
         let expression: SyntaxTree = self.parse_expression()?;
         let expr_type: Type = get_expr_type(&expression, &self.context).unwrap();
@@ -475,7 +485,7 @@ impl Parser {
         }
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::Semicolon));
+        assert_token_type!(next_token, Semicolon);
 
         self.context.add_var(id.clone(), var_type.clone());
         Ok(SyntaxTree::new(SyntaxNode::LetStmt(id, var_type, Box::new(expression)), line_num, col_num))
@@ -575,9 +585,9 @@ impl Parser {
     }
 
 
-    fn parse_while_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
+    fn parse_while_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::OpenParen));
+        assert_token_type!(next_token, OpenParen);
 
         let expr = self.parse_expression()?;
         if get_expr_type(&expr, &self.context).unwrap() != Type::new(SimpleType::Bool, false, vec![]) {
@@ -585,20 +595,20 @@ impl Parser {
         }
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::CloseParen));
+        assert_token_type!(next_token, CloseParen);
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::OpenCurly));
+        assert_token_type!(next_token, OpenCurly);
 
         let body = self.parse_stmt_block()?;
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+        assert_token_type!(next_token, CloseCurly);
 
         Ok(SyntaxTree::new(SyntaxNode::WhileStmt(Box::new(expr), body), line_num, col_num))
     }
 
 
-    fn parse_func_call_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
+    fn parse_func_call_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         // check that the function exists in this context
         match self.context.verify_function(&id) {
             Some(_) => (),
@@ -615,17 +625,17 @@ impl Parser {
             }
         }
         
-        Err(ParsingError::UnexpectedToken(next_token))
+        Err(Box::new(ParsingError::UnexpectedToken(next_token)))
     }
 
 
-    fn parse_return(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
+    fn parse_return(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let expr = self.parse_expression()?;
         if let TokenType::Semicolon = self.tokens.pop_front().unwrap().token_type {
             return Ok(SyntaxTree::new(SyntaxNode::ReturnStmt(Box::new(expr)), line_num, col_num));
         }
 
-        Err(ParsingError::MissingSemicolon(line_num))
+        Err(Box::new(ParsingError::MissingSemicolon(line_num)))
     }
 
 
@@ -638,7 +648,7 @@ impl Parser {
     /// # Examples
     /// 
     /// See [`Parser::parse_func_body()`] for examples of use.
-    fn parse_expression(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_expression(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let left = self.parse_logical_or()?;
         let (left_line, left_col) = (left.start_line, left.start_index);
         let next_token = self.tokens.pop_front().unwrap();
@@ -654,7 +664,7 @@ impl Parser {
 
                 }
 
-                return Err(ParsingError::UnexpectedToken(next_token));
+                return Err(Box::new(ParsingError::UnexpectedToken(next_token)));
             }
 
             _ => {
@@ -666,67 +676,67 @@ impl Parser {
     }
 
 
-    fn parse_logical_or(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_logical_or(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_logical_and, DoublePipe => "||")
     }
 
 
-    fn parse_logical_and(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_logical_and(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_bitwise_xor, DoubleAmpersand => "&&")
     }
     
     
-    fn parse_bitwise_xor(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_bitwise_xor(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_bitwise_or, UpArrow => "^")
     }
 
 
-    fn parse_bitwise_or(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_bitwise_or(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_bitwise_and, Pipe => "|")
     }
 
 
-    fn parse_bitwise_and(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_bitwise_and(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_equality, Ampersand => "&")
     }
 
 
-    fn parse_equality(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_equality(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_concatenation, DoubleEqual => "==", BangEqual => "!=")
     }
     
     
-    fn parse_concatenation(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_concatenation(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_scalar_comparisons, DoubleColon => "::")
     }
 
 
-    fn parse_scalar_comparisons(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_scalar_comparisons(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_shifts, RightArrow => ">", LeftArrow => "<", LeftArrowEqual => "<=", RightArrowEqual => ">=")
     }
 
 
-    fn parse_shifts(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_shifts(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_plus_minus, DoubleRightArrow => ">>", TripleRightArrow => ">>>", DoubleLeftArrow => "<<")
     }
 
 
-    fn parse_plus_minus(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_plus_minus(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_mult_div_modulo, Plus => "+", Minus => "-")
     }
 
 
-    fn parse_mult_div_modulo(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_mult_div_modulo(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_arrow, Star => "*", FwdSlash => "/", Percent => "%")
     }
 
 
-    fn parse_arrow(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_arrow(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         parse_binary_operator!(self, parse_right_assoc_unary, Arrow => "->")
     }
 
 
-    fn parse_right_assoc_unary(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_right_assoc_unary(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::Minus => Ok(SyntaxTree::new(SyntaxNode::RightAssocUnaryOperation(
@@ -757,7 +767,7 @@ impl Parser {
         }
     }
 
-    fn parse_left_assoc_unary(&mut self) -> Result<SyntaxTree, ParsingError> {
+    fn parse_left_assoc_unary(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let mut root: SyntaxTree = self.parse_range().unwrap();
         loop {
             let next_token = self.tokens.pop_front().unwrap();
@@ -794,7 +804,7 @@ impl Parser {
                                 ), expr.start_line, expr.start_index);
 
                                 let next_token = self.tokens.pop_front().unwrap();
-                                assert!(matches!(next_token.token_type, TokenType::CloseSquare));
+                                assert_token_type!(next_token, CloseSquare);
                                 continue;
                             }
                         }
@@ -823,7 +833,7 @@ impl Parser {
                         continue;
                     }
 
-                    return Err(ParsingError::UnexpectedToken(next_token));
+                    return Err(Box::new(ParsingError::UnexpectedToken(next_token)));
                 }
 
                 // End of this level of precedence
@@ -938,18 +948,18 @@ impl Parser {
     fn parse_do_block(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         let (line, col) = (next_token.line_number, next_token.col_number);
-        assert!(matches!(next_token.token_type, TokenType::OpenCurly));
+        assert_token_type!(next_token, OpenCurly);
 
         let body = self.parse_stmt_block()?;
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+        assert_token_type!(next_token, CloseCurly);
 
         Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(body), line, col))
     }
 
 
-    fn parse_func_args(&mut self) -> Result<Vec<SyntaxTree>, ParsingError> {
+    fn parse_func_args(&mut self) -> Result<Vec<SyntaxTree>, Box<dyn Error>> {
         let mut args: Vec<SyntaxTree> = vec![];
         let next_token = self.tokens.pop_front().unwrap();
         // return an empty vec if there are no arguments
@@ -968,7 +978,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::CloseParen => break,
                 TokenType::Comma => continue,
-                _ => return Err(ParsingError::UnexpectedToken(next_token))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
             }
         }
 
@@ -976,10 +986,10 @@ impl Parser {
     }
 
 
-    fn parse_selection(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
+    fn parse_selection(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         // parse the condition
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::OpenParen));
+        assert_token_type!(next_token, OpenParen);
 
         let cond = self.parse_expression()?;
         if get_expr_type(&cond, &self.context).unwrap() != Type::new(SimpleType::Bool, false, vec![]) {
@@ -987,14 +997,14 @@ impl Parser {
         }
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert!(matches!(next_token.token_type, TokenType::CloseParen));
+        assert_token_type!(next_token, CloseParen);
 
         let next_token = self.tokens.pop_front().unwrap();
         let if_body = match next_token.token_type {
             TokenType::OpenCurly => {
                 let result = self.parse_stmt_block()?;
                 let next_token = self.tokens.pop_front().unwrap();
-                assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+                assert_token_type!(next_token, CloseCurly);
                 result
             },
 
@@ -1012,7 +1022,7 @@ impl Parser {
                     TokenType::OpenCurly => {
                         let result = self.parse_stmt_block()?;
                         let next_token = self.tokens.pop_front().unwrap();
-                        assert!(matches!(next_token.token_type, TokenType::CloseCurly));
+                        assert_token_type!(next_token, CloseCurly);
                         result
                     },
 
