@@ -44,7 +44,9 @@ macro_rules! assert_token_type {
     ($token:ident, $token_type:ident) => {
         match $token.token_type {
             TokenType::$token_type => (),
-            _ => return Err(Box::new(ParsingError::UnexpectedToken($token, ExpectedToken::$token_type)))
+            _ => return Err(Box::new(
+                ParsingError::UnexpectedToken($token, ExpectedToken::$token_type)
+            ))
         }
     };
 }
@@ -617,26 +619,26 @@ impl Parser {
         }
 
         let next_token = self.tokens.pop_front().unwrap();
-        if let TokenType::OpenParen = next_token.token_type {
-            let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
-            if let TokenType::Semicolon = self.tokens.pop_front().unwrap().token_type {
-                let expr = SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments), line_num, col_num);
-                get_expr_type(&expr, &self.context).unwrap();
-                return Ok(expr);
-            }
-        }
+        assert_token_type!(next_token, OpenParen);
+
+        let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, Semicolon);
         
-        Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::OpenParen)))
+        let expr = SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments), line_num, col_num);
+        get_expr_type(&expr, &self.context).unwrap();
+        return Ok(expr);
     }
 
 
     fn parse_return(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let expr = self.parse_expression()?;
-        if let TokenType::Semicolon = self.tokens.pop_front().unwrap().token_type {
-            return Ok(SyntaxTree::new(SyntaxNode::ReturnStmt(Box::new(expr)), line_num, col_num));
-        }
 
-        Err(Box::new(ParsingError::MissingSemicolon(line_num)))
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, Semicolon);
+
+        return Ok(SyntaxTree::new(SyntaxNode::ReturnStmt(Box::new(expr)), line_num, col_num));
     }
 
 
@@ -657,15 +659,12 @@ impl Parser {
             TokenType::Question => {
                 let true_expr: SyntaxTree = self.parse_expression()?;
                 let next_token = self.tokens.pop_front().unwrap();
-                if let TokenType::Colon = next_token.token_type {
-                    let false_expr: SyntaxTree = self.parse_expression()?;
-                    return Ok(SyntaxTree::new(SyntaxNode::TernaryExpression(
-                        Box::new(left), Box::new(true_expr), Box::new(false_expr)
-                    ), left_line, left_col));
+                assert_token_type!(next_token, Colon);
 
-                }
-
-                return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Colon)));
+                let false_expr: SyntaxTree = self.parse_expression()?;
+                return Ok(SyntaxTree::new(SyntaxNode::TernaryExpression(
+                    Box::new(left), Box::new(true_expr), Box::new(false_expr)
+                ), left_line, left_col));
             }
 
             _ => {
@@ -815,26 +814,22 @@ impl Parser {
 
                     // this is an indexing operation
                     let next_token = self.tokens.pop_front().unwrap();
-                    if let TokenType::CloseSquare = next_token.token_type {
-                        root = match root_type.basic_type {
-                            SimpleType::Tuple(_) => SyntaxTree::new(
-                                SyntaxNode::TupleIndexingOperation(
-                                    Box::new(expr), 
-                                    Box::new(root)
-                                ), next_token.line_number, next_token.col_number
-                            ),
-                            SimpleType::Array(_, _) => SyntaxTree::new(
-                                SyntaxNode::ArrayIndexingOperation(
-                                    Box::new(expr), 
-                                    Box::new(root)
-                                ), next_token.line_number, next_token.col_number
-                            ),
-                            _ => panic!("Expected tuple or array!")
-                        };
-                        continue;
-                    }
-
-                    return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare)));
+                    assert_token_type!(next_token, CloseSquare);
+                    root = match root_type.basic_type {
+                        SimpleType::Tuple(_) => SyntaxTree::new(
+                            SyntaxNode::TupleIndexingOperation(
+                                Box::new(expr), 
+                                Box::new(root)
+                            ), next_token.line_number, next_token.col_number
+                        ),
+                        SimpleType::Array(_, _) => SyntaxTree::new(
+                            SyntaxNode::ArrayIndexingOperation(
+                                Box::new(expr), 
+                                Box::new(root)
+                            ), next_token.line_number, next_token.col_number
+                        ),
+                        _ => panic!("Expected tuple or array!")
+                    };
                 }
 
                 // End of this level of precedence

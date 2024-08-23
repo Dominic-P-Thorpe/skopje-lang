@@ -51,6 +51,7 @@ pub enum ExpectedToken {
 }
 
 
+#[allow(unused)]
 #[derive(Debug, Clone)]
 pub enum ParsingError {
     // token encountered, token expected
