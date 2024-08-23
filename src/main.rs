@@ -17,6 +17,7 @@ fn main() {
     match parser.parse() {
         Err(e) => eprintln!("{}", e),
         Ok(ast) => {
+            println!("Compiled");
             let mut transpiler = Transpiler::new(ast, "out.cpp");
             println!("{:#?}", transpiler.transpile_c());
         }

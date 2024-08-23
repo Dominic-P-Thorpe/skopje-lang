@@ -24,6 +24,7 @@ pub enum TokenType {
     DoubleMinus,
     Star,
     FwdSlash,
+    DoubleFwdSlash,
     Percent,
     RightArrow,
     DoubleRightArrow,

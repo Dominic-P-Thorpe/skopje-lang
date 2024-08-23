@@ -147,6 +147,7 @@ impl Scanner {
             }
 
             match self.categorize_token(token_text, line) {
+                Ok(TokenType::DoubleFwdSlash) => break,
                 Ok(token_type) => self.add_token(token_type, line), // token is finished with
                 Err(_) => () // could not categorize token, so keep going
             }
@@ -242,12 +243,19 @@ impl Scanner {
             "[" => Ok(TokenType::OpenSquare),
             "]" => Ok(TokenType::CloseSquare),
             ";" => Ok(TokenType::Semicolon),
-            "*" => Ok(TokenType::Star),
-            "/" => Ok(TokenType::FwdSlash),
             "%" => Ok(TokenType::Percent),
             "~" => Ok(TokenType::Complement),
             "?" => Ok(TokenType::Question),
             "," => Ok(TokenType::Comma),
+            "*" => Ok(TokenType::Star),
+
+            "/" => {
+                if let Some('/')  = self.peek(line, 0) {
+                    self.advance();
+                    return Ok(TokenType::DoubleFwdSlash);
+                }
+                Ok(TokenType::FwdSlash)
+            },
 
             "." => {
                 if let Some('.') = self.peek(line, 0) {
