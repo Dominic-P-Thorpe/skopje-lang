@@ -1,10 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 
-use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type, get_expr_type, get_l_expr_type, is_constexpr};
+use crate::semantics::typechecking::*;
 
 use super::types::SimpleType;
-use super::{errors::ParsingError, token::*, types::Type};
+use super::errors::{ParsingError, ExpectedToken};
+use super::{token::*, types::Type};
 
 
 macro_rules! parse_binary_operator {
@@ -43,7 +44,7 @@ macro_rules! assert_token_type {
     ($token:ident, $token_type:ident) => {
         match $token.token_type {
             TokenType::$token_type => (),
-            _ => return Err(Box::new(ParsingError::UnexpectedToken($token)))
+            _ => return Err(Box::new(ParsingError::UnexpectedToken($token, ExpectedToken::$token_type)))
         }
     };
 }
@@ -209,7 +210,7 @@ impl Parser {
         while let Some(next_token) = self.tokens.pop_front() {
             match &next_token.token_type {
                 TokenType::FnKeyword => top_level_constructs.push(self.parse_function(next_token.line_number, next_token.col_number)?),
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::FnKeyword)))
             }
         }
 
@@ -275,7 +276,7 @@ impl Parser {
             ));
         }
 
-        Err(Box::new(ParsingError::UnexpectedToken(id_token)))
+        Err(Box::new(ParsingError::UnexpectedToken(id_token, super::errors::ExpectedToken::Identifier)))
     }
 
 
@@ -299,13 +300,13 @@ impl Parser {
             if let TokenType::Identifier(id) = next_token.token_type {
                 p_id = id;
             } else {
-                return Err(Box::new(ParsingError::UnexpectedToken(next_token)));
+                return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)));
             }
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
                 TokenType::Colon => (),
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Colon)))
             }
 
             // TODO: make this work with all param types
@@ -318,7 +319,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::CloseParen => break,
                 TokenType::Comma => continue,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
             }
         }
 
@@ -361,7 +362,7 @@ impl Parser {
             TokenType::Identifier(id) => self.parse_func_call_or_reassignment_stmt(id, next_token.line_number, next_token.col_number),
             TokenType::LetKeyword => self.parse_let_statement(next_token.line_number, next_token.col_number),
             TokenType::ForKeyword => self.parse_for_loop(next_token.line_number, next_token.col_number),
-            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Statement)))
         }
     }
 
@@ -376,7 +377,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         let iterator_id: String = match next_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
         };
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -414,7 +415,7 @@ impl Parser {
             TokenType::OpenParen => self.parse_func_call_stmt(id, line_num, col_num),
             TokenType::Equal
             | TokenType::OpenSquare => self.parse_reassignment(id, line_num, col_num),
-            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token.clone())))
+            _ => panic!()
         }
     }
 
@@ -467,7 +468,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         let id: String = match next_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
         };
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -507,7 +508,7 @@ impl Parser {
         let basic_type = match next_token.token_type {
             TokenType::Identifier(id) => id,
             TokenType::OpenParen => return self.parse_tuple_type(),
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
         };
 
         // check if there is a generic component
@@ -552,7 +553,7 @@ impl Parser {
                     if let TokenType::CloseSquare = next_token.token_type {
                         final_type = Type::new(SimpleType::Array(Box::new(final_type), size), false, vec![]);
                     } else {
-                        return Err(Box::new(ParsingError::UnexpectedToken(next_token)));
+                        return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare)));
                     }
                 },
                 _ => break
@@ -573,7 +574,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseParen => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
             }
         }
 
@@ -625,7 +626,7 @@ impl Parser {
             }
         }
         
-        Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+        Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::OpenParen)))
     }
 
 
@@ -664,7 +665,7 @@ impl Parser {
 
                 }
 
-                return Err(Box::new(ParsingError::UnexpectedToken(next_token)));
+                return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Colon)));
             }
 
             _ => {
@@ -833,7 +834,7 @@ impl Parser {
                         continue;
                     }
 
-                    return Err(Box::new(ParsingError::UnexpectedToken(next_token)));
+                    return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare)));
                 }
 
                 // End of this level of precedence
@@ -885,7 +886,7 @@ impl Parser {
 
             TokenType::OpenParen => self.parse_tuple_or_paren_expr(),
             TokenType::OpenSquare => self.parse_array_literal(next_token.line_number, next_token.col_number),
-            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Expression)))
         }
     }
 
@@ -898,7 +899,7 @@ impl Parser {
             match &next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseSquare => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare)))
             } 
         }
 
@@ -916,7 +917,7 @@ impl Parser {
         match &next_token.token_type {
             TokenType::CloseParen => Ok(SyntaxTree::new(SyntaxNode::ParenExpr(Box::new(expr)), next_token.line_number, next_token.col_number)),
             TokenType::Comma => self.parse_tuple(expr, next_token.line_number, next_token.col_number),
-            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+            _ => panic!()
         }
     }
 
@@ -931,7 +932,7 @@ impl Parser {
             match &next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseParen => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
             } 
         }
 
@@ -978,7 +979,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::CloseParen => break,
                 TokenType::Comma => continue,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token)))
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
             }
         }
 

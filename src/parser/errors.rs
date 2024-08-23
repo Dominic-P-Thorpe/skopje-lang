@@ -1,6 +1,6 @@
 use std::{fmt, error};
 
-use super::token::Token;
+use super::token::{Token, TokenType};
 
 
 #[derive(Debug, Clone)]
@@ -25,9 +25,36 @@ impl fmt::Display for LexingError {
 impl error::Error for LexingError {}
 
 
+#[allow(unused)]
+#[derive(Debug, Clone)]
+pub enum ExpectedToken {
+    ParseToken(TokenType),
+    Expression,
+    Statement,
+    Identifier,
+    ConstantExpression,
+    Operator,
+    Literal,
+    FnKeyword,
+    InKeyword,
+    Colon,
+    Comma,
+    OpenParen,
+    CloseParen,
+    OpenSquare,
+    CloseSquare,
+    OpenCurly,
+    CloseCurly,
+    Arrow,
+    Equal,
+    Semicolon
+}
+
+
 #[derive(Debug, Clone)]
 pub enum ParsingError {
-    UnexpectedToken(Token),
+    // token encountered, token expected
+    UnexpectedToken(Token, ExpectedToken),
     MissingSemicolon(usize),
     InvalidTypeName(String)
 }
@@ -36,8 +63,8 @@ pub enum ParsingError {
 impl fmt::Display for ParsingError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::UnexpectedToken(token) => write!(f, "Unexpected token {} at line {}, col {}", 
-                format!("{:?}", token.token_type), token.line_number, token.col_number + 1),
+            Self::UnexpectedToken(token, expected) => write!(f, "Unexpected token {} at line {}, col {}, expected {:?}", 
+                format!("{:?}", token.token_type), token.line_number, token.col_number + 1, expected),
             Self::MissingSemicolon(line) => write!(f, "Missing semicolon on line {}", line),
             Self::InvalidTypeName(name) => write!(f, "{} is not a valid type name", name)
         }
