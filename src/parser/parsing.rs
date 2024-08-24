@@ -392,6 +392,7 @@ impl Parser {
 
         let iterator_expr = self.parse_expression()?;
         let iterator_expr_type = get_expr_type(&iterator_expr, &self.context).unwrap();
+        println!("Type: {:?}", iterator_expr_type);
         if !iterator_type.is_compatible_with(&get_array_inner_type(&iterator_expr_type)) {
             panic!("Iterator variable type must be compatible with the type of the elements of the iterator expression!");
         }

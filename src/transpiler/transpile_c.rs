@@ -193,7 +193,10 @@ impl Transpiler {
                     "    ".repeat(indent),
                     iterator_type.as_ctype_str(),
                     iterator_name,
-                    self.transpile_typed_expr_c(iterator_expr, iterator_type)?,
+                    self.transpile_typed_expr_c(
+                        iterator_expr, 
+                        &Type::new(SimpleType::Iterator(Box::new(iterator_type.clone())), false, vec![])
+                    )?,
                     body.iter()
                         .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
                         .collect::<Vec<String>>()
@@ -310,7 +313,6 @@ impl Transpiler {
             }
 
             SyntaxNode::ArrayLiteral(elems, _) => {
-
                 Ok(format!(
                     "make_array<{}, {}>({})",
                     get_array_inner_type(&target).as_ctype_str(),
@@ -332,12 +334,19 @@ impl Transpiler {
 mod test {
     use crate::parser::parsing::Parser;
     use crate::parser::lexing::Scanner;
+    use super::Transpiler;
 
 
     #[test]
     fn test_for_loop() {
-        let scanner = Scanner::new("tests/test_for_loop.skj").unwrap();
+        let scanner = Scanner::new("my_file.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
-        parser.parse().unwrap();
+        match parser.parse() {
+            Err(e) => eprintln!("{}", e),
+            Ok(ast) => {
+                let mut transpiler = Transpiler::new(ast, "out.cpp");
+                println!("{:#?}", transpiler.transpile_c());
+            }
+        }
     }
 }

@@ -16,9 +16,15 @@ use super::errors::TypeError;
 
 pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<dyn Error>> {
     match &expr.node {
-        SyntaxNode::BinaryOperation(op, l, r) => get_binary_operation_type(
-            op.to_string(), &*l, &*r, context
-        ),
+        SyntaxNode::BinaryOperation(op, l, r) => match op.as_str() {
+            ".." => {
+                println!("Here...");
+                let left_type = get_expr_type(l, context)?;
+                let (left_value, right_value) = (fold_constexpr_index(l), fold_constexpr_index(r));
+                Ok(Type::from_basic(SimpleType::Array(Box::new(left_type), usize::abs_diff(left_value, right_value))))
+            }
+            _ => get_binary_operation_type(op.to_string(), &*l, &*r, context)
+        }
 
         SyntaxNode::LeftAssocUnaryOperation(op, arg)
         | SyntaxNode::RightAssocUnaryOperation(op, arg) => get_unary_operation_type(
@@ -206,8 +212,10 @@ pub fn get_l_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box
 
 
 pub fn get_array_inner_type(array: &Type) -> Type {
+    println!("Here is: {:?}", array);
     match &array.basic_type {
-        SimpleType::Array(inner, _) => *inner.clone(),
+        SimpleType::Array(inner, _) 
+        | SimpleType::Iterator(inner) => *inner.clone(),
         other => panic!("Expected array, got {:?}", other)
     }
 }

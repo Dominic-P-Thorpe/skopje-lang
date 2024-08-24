@@ -13,6 +13,7 @@ pub enum SimpleType {
     Bool,
     Tuple(Vec<Type>),
     Array(Box<Type>, usize), // inner type, array size
+    Iterator(Box<Type>), // inner type
     Function(Box<Type>, Vec<Type>), // return type, vec of params
     IOMonad
 }
@@ -45,6 +46,7 @@ impl SimpleType {
             Self::Str => String::from("std::string"),
             Self::Bool => String::from("bool"),
             Self::IOMonad => String::from("IOMonad"),
+            Self::Iterator(inner) => format!("std::vector<{}>", inner.as_ctype_str()),
             Self::Array(inner_type, size) => format!("std::array<{}, {}>", inner_type.as_ctype_str(), size),
             Self::Tuple(types) => format!(
                 "std::tuple<{}>",
@@ -85,17 +87,37 @@ impl SimpleType {
             return false;
         }
 
-        if let Self::Array(self_inner, self_size) = self {
-            if let Self::Array(other_inner, other_size) = other {
-                if self_inner.is_compatible_with(&other_inner) && self_size == other_size {
-                    return true;
+        match &self {
+            Self::Iterator(self_inner) => {
+                match &other {
+                    Self::Iterator(other_inner) | Self::Array(other_inner, _) => {
+                        if self_inner.is_compatible_with(&other_inner) {
+                            return true;
+                        }
+        
+                        false
+                    }
+
+                    _ => false
+                }
+            }
+
+            Self::Array(self_inner, self_size) => {
+                match &other {
+                    Self::Array(other_inner, other_size) => {
+                        if self_inner.is_compatible_with(&other_inner) && self_size == other_size {
+                            return true;
+                        }
+        
+                        false
+                    }
+
+                    _ => false
                 }
 
-                return false;
             }
+            _ => false
         }
-
-        false
     }
 
 
