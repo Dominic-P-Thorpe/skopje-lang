@@ -109,6 +109,11 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             Ok(Type::new(SimpleType::Array(Box::new(inner_type.clone()), elems.len()), false, vec![]))
         }
 
+        SyntaxNode::EnumInstantiation(enum_type, _, _) => match &enum_type.basic_type {
+            SimpleType::Enum(enum_name, _) => Ok(context.valid_type_identifiers.get(enum_name).unwrap().clone()),
+            _ => panic!()
+        }
+
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }

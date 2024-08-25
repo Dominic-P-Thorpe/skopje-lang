@@ -47,7 +47,8 @@ pub enum ExpectedToken {
     CloseCurly,
     Arrow,
     Equal,
-    Semicolon
+    Semicolon,
+    DoubleColon
 }
 
 

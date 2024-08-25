@@ -325,6 +325,11 @@ impl Transpiler {
                 ))
             }
 
+            SyntaxNode::EnumInstantiation(enum_type, variant, _) => match &enum_type.basic_type {
+                SimpleType::Enum(name, variants) => Ok(format!("{}({})", name, variants.get(variant).unwrap().1)),
+                _ => panic!()
+            }
+
             other => panic!("{:?} is not a valid expression node!", other)
         }
     }
@@ -332,18 +337,11 @@ impl Transpiler {
 
     fn transpile_enum(&self, name: &String, variants: &Vec<SyntaxTree>, indent: usize) -> Result<String, Box<dyn Error>> {
         let internal_union = format!(
-            "{0}public: \n\t{0}union InternalUnion {{\n\t\t{0}{1}\n\t{0}\n\n\t\t{0}{2}\n\t}};\n\n\t{0}InternalUnion value;", 
+            "{0}public: \n\t{0}union InternalUnion {{\n\t\t{0}{1}\n\t}};\n\n\t{0}InternalUnion value;", 
             "    ".repeat(indent),
             variants.iter().map(
                 |v| match &v.node {
                     SyntaxNode::EnumVariant(name, _) => format!("struct {} {{}} {};", capitalize(name), name.to_lowercase()),
-                    _ => panic!()
-                }
-            ).collect::<Vec<String>>().join(&format!("\n\t\t{}", "    ".repeat(indent))),
-
-            variants.iter().map(
-                |v| match &v.node {
-                    SyntaxNode::EnumVariant(name, _) => format!("InternalUnion() : {}() {{}}", name.to_lowercase()),
                     _ => panic!()
                 }
             ).collect::<Vec<String>>().join(&format!("\n\t\t{}", "    ".repeat(indent))),

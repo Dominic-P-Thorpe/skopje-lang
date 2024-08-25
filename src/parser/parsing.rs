@@ -59,6 +59,8 @@ pub enum SyntaxNode {
     Enumeraion(String, Vec<SyntaxTree>),
     // name, parameters (param name, param type)
     EnumVariant(String, Vec<(String, Type)>),
+    // Enum type, variant name, variant arguments
+    EnumInstantiation(Type, String, HashMap<String, SyntaxTree>),
     // function name, arguments (id, type), return type, body statements
     Function(String, Vec<(String, Type)>, Type, Vec<SyntaxTree>),
     // expression to return
@@ -126,6 +128,7 @@ impl SyntaxTree {
 pub struct Context {
     /// The valid identifiers in this context and their types
     pub valid_identifiers: HashMap<String, (Type, usize)>,
+    pub valid_type_identifiers: HashMap<String, Type>,
     context_window_id: usize
 }
 
@@ -148,13 +151,19 @@ impl Context {
 
         Context {
             valid_identifiers,
+            valid_type_identifiers: HashMap::new(),
             context_window_id: 1
         }
     }
 
 
-    pub fn add_var(&mut self, id: String, t: Type) {
-        self.valid_identifiers.insert(id, (t, self.context_window_id));
+    pub fn add_var(&mut self, id: &str, t: Type) {
+        self.valid_identifiers.insert(id.to_owned(), (t, self.context_window_id));
+    }
+
+
+    pub fn add_type(&mut self, id: &str, t: Type) {
+        self.valid_type_identifiers.insert(id.to_owned(), t);
     }
 
 
@@ -275,7 +284,7 @@ impl Parser {
             let func_type = Type::new(SimpleType::Function(
                 Box::new(return_type.clone()), params.iter().map(|(_, t)| t).cloned().collect::<Vec<Type>>()
             ), false, vec![]);
-            self.context.add_var(id.clone(), func_type);
+            self.context.add_var(&id, func_type);
 
             self.context.end_context_window(&context_window_id);
             return Ok(SyntaxTree::new(
@@ -320,7 +329,7 @@ impl Parser {
             let p_type: Type = self.parse_type().unwrap();
 
             params.push((p_id.clone(), p_type.clone()));
-            self.context.add_var(p_id, p_type);
+            self.context.add_var(&p_id, p_type);
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
@@ -407,7 +416,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenCurly);
 
-        self.context.add_var(iterator_id.clone(), iterator_type.clone());
+        self.context.add_var(&iterator_id, iterator_type.clone());
         let body = self.parse_stmt_block()?;
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -496,7 +505,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, Semicolon);
 
-        self.context.add_var(id.clone(), var_type.clone());
+        self.context.add_var(&id, var_type.clone());
         Ok(SyntaxTree::new(SyntaxNode::LetStmt(id, var_type, Box::new(expression)), line_num, col_num))
     }
 
@@ -542,7 +551,7 @@ impl Parser {
             _ => vec![] // no generic
         };
 
-        let mut final_type: Type = Type::new_str(basic_type, false, generics)?;
+        let mut final_type: Type = Type::new_str(basic_type, false, generics, &self.context)?;
 
         loop {
             let next_token = self.tokens.get(0).unwrap();
@@ -712,8 +721,58 @@ impl Parser {
     }
     
     
+    // Could either be a concatenation or an enum instantiation
     fn parse_concatenation(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        parse_binary_operator!(self, parse_scalar_comparisons, DoubleColon => "::")
+        // parse_binary_operator!(self, parse_scalar_comparisons, DoubleColon => "::")
+        let mut root: SyntaxTree = self.parse_scalar_comparisons()?;
+        let (root_line, root_col) = (root.start_line, root.start_index);
+        let root_type = get_expr_type(&root, &self.context)?;
+        match root_type.basic_type {
+            SimpleType::Enum(name, _) => {
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, DoubleColon);
+
+                let next_token = self.tokens.pop_front().unwrap();
+                let variant_id = match next_token.token_type {
+                    TokenType::Identifier(id) => id,
+                    _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+                };
+                
+                let enum_type = self.context.valid_type_identifiers.get(&name).unwrap();
+                Ok(SyntaxTree::new(
+                    SyntaxNode::EnumInstantiation(
+                        enum_type.clone(), 
+                        variant_id, 
+                        HashMap::new()
+                    ), 
+                    root_line, root_col)
+                )
+            },
+
+            _ => { // is an array concatenation
+                loop {
+                    let next_token = self.tokens.pop_front().unwrap();
+                    match next_token.token_type {
+                        TokenType::DoubleColon => {
+                            let right: SyntaxTree = self.parse_scalar_comparisons()?;
+                            root = SyntaxTree::new(SyntaxNode::BinaryOperation(
+                                "::".to_owned(),
+                                Box::new(root),
+                                Box::new(right),
+                            ), root_line, root_col);
+                        }
+        
+                        // End of this level of precedence
+                        _ => {
+                            self.tokens.push_front(next_token);
+                            break;
+                        }
+                    }
+                }
+        
+                Ok(root)
+            }
+        }
     }
 
 
@@ -868,7 +927,7 @@ impl Parser {
                 // check that the identifier is valid in this context
                 match self.context.valid_identifiers.get(&id) {
                     Some(_) => (),
-                    None => panic!("Semantic error: The identifier {} could not be found!", id)
+                    None => panic!("Semantic error: The identifier {} could not be found on line {}, col {}!", id, next_token.line_number, next_token.col_number)
                 }
 
                 let func_call_paren = self.tokens.pop_front().unwrap();
@@ -1045,6 +1104,21 @@ impl Parser {
     }
 
 
+    fn get_enum_variants_data(&self, variants: &Vec<SyntaxTree>) -> HashMap<String, (HashMap<String, Type>, usize)> {
+        let mut result: HashMap<String, (HashMap<String, Type>, usize)> = HashMap::new();
+        let mut index: usize = 0;
+        for variant in variants {
+            match &variant.node {
+                SyntaxNode::EnumVariant(name, _) => result.insert(name.to_string(), (HashMap::new(), index)),
+                _ => panic!()
+            };
+            index += 1;
+        }
+
+        result
+    }
+
+
     fn parse_enumeration(&mut self, start_line: usize, start_index: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         let identifier = match next_token.token_type {
@@ -1056,6 +1130,11 @@ impl Parser {
         assert_token_type!(next_token, Equal);
 
         let variants = self.parse_enum_variants()?;
+        let variant_data = self.get_enum_variants_data(&variants);
+
+        let t: Type = Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data));
+        self.context.add_type(&identifier, t.clone());
+        self.context.add_var(&identifier, t);
         Ok(SyntaxTree::new(SyntaxNode::Enumeraion(identifier, variants), start_line, start_index))
     }
 
