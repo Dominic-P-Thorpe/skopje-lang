@@ -336,41 +336,42 @@ impl Transpiler {
 
 
     fn transpile_enum(&self, name: &String, variants: &Vec<SyntaxTree>, indent: usize) -> Result<String, Box<dyn Error>> {
-        let internal_union = format!(
-            "{0}public: \n\t{0}union InternalUnion {{\n\t\t{0}{1}\n\t}};\n\n\t{0}InternalUnion value;", 
-            "    ".repeat(indent),
+        let string = format!("
+class {0} {{
+private:
+    enum Tag {{
+        {1}
+    }};
+
+    Tag tag;
+
+
+public:
+    union InternalUnion {{
+        {2}
+    }};
+
+    InternalUnion value;
+    
+    template<typename... T>
+    {0}(int inner_type, T... args) {{
+        this->tag = static_cast<Tag>(inner_type);
+        this->value = InternalUnion(args...);
+    }}
+}};\n\n", 
+            name,
+            variants.iter().map(
+                |v| match &v.node {
+                    SyntaxNode::EnumVariant(name, _) => capitalize(name),
+                    _ => panic!()
+                }
+            ).collect::<Vec<String>>().join(&format!(",\n\t\t{}", "    ".repeat(indent))),
             variants.iter().map(
                 |v| match &v.node {
                     SyntaxNode::EnumVariant(name, _) => format!("struct {} {{}} {};", capitalize(name), name.to_lowercase()),
                     _ => panic!()
                 }
             ).collect::<Vec<String>>().join(&format!("\n\t\t{}", "    ".repeat(indent))),
-        );
-
-        let private_members = format!(
-            "{0}private:\n\t{0}enum Tag {{\n\t\t{0}{1}\n\t{0}}};\n\n\t{0}Tag tag;", 
-            "    ".repeat(indent),
-            variants.iter().map(
-                |v| match &v.node {
-                    SyntaxNode::EnumVariant(name, _) => capitalize(name),
-                    _ => panic!()
-                }
-            ).collect::<Vec<String>>().join(&format!(",\n\t\t{}", "    ".repeat(indent)))
-        );
-
-        let constructor = format!(
-            "\t{0}template<typename... T>\n\t{0}{1}(int inner_type, T... args) {{\n\t\t{0}this->tag = static_cast<Tag>(inner_type);\n\t\t{0}this->value = InternalUnion(args...);\n\t{0}}}", 
-            "    ".repeat(indent), 
-            name
-        );
-
-        let string = format!(
-            "\n{0}class {1} {{\n{2}\n\n\n{3}\n\n{4}\n{0}}};\n\n",
-            "    ".repeat(indent), 
-            name,
-            private_members,
-            internal_union,
-            constructor
         );
         Ok(string)
     }
