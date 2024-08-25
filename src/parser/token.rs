@@ -59,6 +59,7 @@ pub enum TokenType {
     WhileKeyword,
     ForKeyword,
     InKeyword,
+    EnumKeyword,
     StrLiteral(String),
     IntLiteral(u64),
     BoolLiteral(bool),

@@ -387,6 +387,7 @@ impl Scanner {
                             "in" => return Ok(TokenType::InKeyword),
                             "let" => return Ok(TokenType::LetKeyword),
                             "do" => return Ok(TokenType::DoKeyword),
+                            "enum" => return Ok(TokenType::EnumKeyword),
                             "true" => return Ok(TokenType::BoolLiteral(true)),
                             "false" => return Ok(TokenType::BoolLiteral(false)),
                             // is not a keyword, and therefore is an identifier

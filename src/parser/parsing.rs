@@ -55,6 +55,10 @@ macro_rules! assert_token_type {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SyntaxNode {
     Program(Vec<SyntaxTree>),
+    // name, variants
+    Enumeraion(String, Vec<SyntaxTree>),
+    // name, parameters (param name, param type)
+    EnumVariant(String, Vec<(String, Type)>),
     // function name, arguments (id, type), return type, body statements
     Function(String, Vec<(String, Type)>, Type, Vec<SyntaxTree>),
     // expression to return
@@ -212,7 +216,8 @@ impl Parser {
         while let Some(next_token) = self.tokens.pop_front() {
             match &next_token.token_type {
                 TokenType::FnKeyword => top_level_constructs.push(self.parse_function(next_token.line_number, next_token.col_number)?),
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::FnKeyword)))
+                TokenType::EnumKeyword => top_level_constructs.push(self.parse_enumeration(next_token.line_number, next_token.col_number)?),
+                _ => panic!()
             }
         }
 
@@ -1037,5 +1042,49 @@ impl Parser {
         };
 
         Ok(SyntaxTree::new(SyntaxNode::SelectionStatement(Box::new(cond), if_body, else_body), line_num, col_num))
+    }
+
+
+    fn parse_enumeration(&mut self, start_line: usize, start_index: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        let next_token = self.tokens.pop_front().unwrap();
+        let identifier = match next_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+        };
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, Equal);
+
+        let variants = self.parse_enum_variants()?;
+        Ok(SyntaxTree::new(SyntaxNode::Enumeraion(identifier, variants), start_line, start_index))
+    }
+
+
+    fn parse_enum_variants(&mut self) -> Result<Vec<SyntaxTree>, Box<dyn Error>> {
+        let mut variants: Vec<SyntaxTree> = vec![];
+        variants.push(self.parse_enum_variant()?);
+
+        loop {
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Pipe => variants.push(self.parse_enum_variant()?),
+                TokenType::Semicolon => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Semicolon)))
+            }
+        }
+
+        Ok(variants)
+    }
+
+
+    fn parse_enum_variant(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        let next_token = self.tokens.pop_front().unwrap();
+        match next_token.token_type {
+            TokenType::Identifier(id) => Ok(SyntaxTree::new(
+                SyntaxNode::EnumVariant(id, vec![]), 
+                next_token.line_number, next_token.col_number
+            )),
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+        }
     }
 }

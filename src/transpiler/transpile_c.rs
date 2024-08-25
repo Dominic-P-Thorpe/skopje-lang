@@ -243,6 +243,7 @@ impl Transpiler {
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
             }
 
+            SyntaxNode::Enumeraion(name, variants) => self.transpile_enum(name, variants, indent),
             other => panic!("{:?} is not a valid node!", other)
         }
     }
@@ -326,6 +327,64 @@ impl Transpiler {
 
             other => panic!("{:?} is not a valid expression node!", other)
         }
+    }
+
+
+    fn transpile_enum(&self, name: &String, variants: &Vec<SyntaxTree>, indent: usize) -> Result<String, Box<dyn Error>> {
+        let internal_union = format!(
+            "{0}public: \n\t{0}union InternalUnion {{\n\t\t{0}{1}\n\t{0}\n\n\t\t{0}{2}\n\t}};\n\n\t{0}InternalUnion value;", 
+            "    ".repeat(indent),
+            variants.iter().map(
+                |v| match &v.node {
+                    SyntaxNode::EnumVariant(name, _) => format!("struct {} {{}} {};", capitalize(name), name.to_lowercase()),
+                    _ => panic!()
+                }
+            ).collect::<Vec<String>>().join(&format!("\n\t\t{}", "    ".repeat(indent))),
+
+            variants.iter().map(
+                |v| match &v.node {
+                    SyntaxNode::EnumVariant(name, _) => format!("InternalUnion() : {}() {{}}", name.to_lowercase()),
+                    _ => panic!()
+                }
+            ).collect::<Vec<String>>().join(&format!("\n\t\t{}", "    ".repeat(indent))),
+        );
+
+        let private_members = format!(
+            "{0}private:\n\t{0}enum Tag {{\n\t\t{0}{1}\n\t{0}}};\n\n\t{0}Tag tag;", 
+            "    ".repeat(indent),
+            variants.iter().map(
+                |v| match &v.node {
+                    SyntaxNode::EnumVariant(name, _) => capitalize(name),
+                    _ => panic!()
+                }
+            ).collect::<Vec<String>>().join(&format!(",\n\t\t{}", "    ".repeat(indent)))
+        );
+
+        let constructor = format!(
+            "\t{0}template<typename... T>\n\t{0}{1}(int inner_type, T... args) {{\n\t\t{0}this->tag = static_cast<Tag>(inner_type);\n\t\t{0}this->value = InternalUnion(args...);\n\t{0}}}", 
+            "    ".repeat(indent), 
+            name
+        );
+
+        let string = format!(
+            "\n{0}class {1} {{\n{2}\n\n\n{3}\n\n{4}\n{0}}};\n\n",
+            "    ".repeat(indent), 
+            name,
+            private_members,
+            internal_union,
+            constructor
+        );
+        Ok(string)
+    }
+}
+
+
+/// Taken from: https://nick.groenen.me/notes/capitalize-a-string-in-rust/
+pub fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
     }
 }
 
