@@ -1,0 +1,10 @@
+enum BasicEnum = Foo | Bar | Cats | Dogs;
+
+
+fn main() -> BasicEnum {
+    let w: BasicEnum = BasicEnum::Foo;
+    let x: BasicEnum = BasicEnum::Bar;
+    let y: BasicEnum = BasicEnum::Cats;
+    let z: BasicEnum = BasicEnum::Dogs;
+    return z;
+}

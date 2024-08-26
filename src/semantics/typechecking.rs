@@ -18,7 +18,6 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
     match &expr.node {
         SyntaxNode::BinaryOperation(op, l, r) => match op.as_str() {
             ".." => {
-                println!("Here...");
                 let left_type = get_expr_type(l, context)?;
                 let (left_value, right_value) = (fold_constexpr_index(l), fold_constexpr_index(r));
                 Ok(Type::from_basic(SimpleType::Array(Box::new(left_type), usize::abs_diff(left_value, right_value))))
@@ -109,8 +108,11 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             Ok(Type::new(SimpleType::Array(Box::new(inner_type.clone()), elems.len()), false, vec![]))
         }
 
-        SyntaxNode::EnumInstantiation(enum_type, _, _) => match &enum_type.basic_type {
-            SimpleType::Enum(enum_name, _) => Ok(context.valid_type_identifiers.get(enum_name).unwrap().clone()),
+        SyntaxNode::EnumInstantiation(enum_type, variant_name, _) => match enum_type.basic_type.clone() {
+            SimpleType::Enum(enum_name, variants, _) => {
+                assert!(variants.contains_key(variant_name));
+                Ok(Type::from_basic(SimpleType::Enum(enum_name, variants, Some(variant_name.to_owned()))))
+            }
             _ => panic!()
         }
 
@@ -217,7 +219,6 @@ pub fn get_l_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box
 
 
 pub fn get_array_inner_type(array: &Type) -> Type {
-    println!("Here is: {:?}", array);
     match &array.basic_type {
         SimpleType::Array(inner, _) 
         | SimpleType::Iterator(inner) => *inner.clone(),
@@ -304,6 +305,13 @@ mod tests {
     }
 
 
+    #[test]
+    fn test_basic_enum() {
+        let scanner = Scanner::new("tests/test_basic_enum.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
 
     #[test]
     #[should_panic]
@@ -354,6 +362,15 @@ mod tests {
     #[should_panic]
     fn test_for_loop_inconsistent_iter_type() {
         let scanner = Scanner::new("tests/test_for_loop_inconsistent_iter_type.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_enum_without_variant() {
+        let scanner = Scanner::new("tests/test_enum_without_variant.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }

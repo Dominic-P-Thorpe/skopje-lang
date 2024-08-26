@@ -326,7 +326,7 @@ impl Transpiler {
             }
 
             SyntaxNode::EnumInstantiation(enum_type, variant, _) => match &enum_type.basic_type {
-                SimpleType::Enum(name, variants) => Ok(format!("{}({})", name, variants.get(variant).unwrap().1)),
+                SimpleType::Enum(name, variants, _) => Ok(format!("{}({})", name, variants.get(variant).unwrap().1)),
                 _ => panic!()
             }
 
@@ -397,12 +397,12 @@ mod test {
 
     #[test]
     fn test_for_loop() {
-        let scanner = Scanner::new("my_file.skj").unwrap();
+        let scanner = Scanner::new("tests/test_for_loop.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         match parser.parse() {
             Err(e) => eprintln!("{}", e),
             Ok(ast) => {
-                let mut transpiler = Transpiler::new(ast, "out.cpp");
+                let mut transpiler = Transpiler::new(ast, "test_out.cpp");
                 println!("{:#?}", transpiler.transpile_c());
             }
         }

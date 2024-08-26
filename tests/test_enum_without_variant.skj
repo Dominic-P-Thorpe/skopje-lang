@@ -1,0 +1,6 @@
+enum MyEnum = Left | Right;
+
+
+fn main() -> MyEnum {
+    return MyEnum;
+}

@@ -106,8 +106,8 @@ pub enum SyntaxNode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SyntaxTree {
     pub node: SyntaxNode,
-    start_index: usize,
-    start_line: usize
+    pub start_index: usize,
+    pub start_line: usize
 }
 
 
@@ -406,7 +406,6 @@ impl Parser {
 
         let iterator_expr = self.parse_expression()?;
         let iterator_expr_type = get_expr_type(&iterator_expr, &self.context).unwrap();
-        println!("Type: {:?}", iterator_expr_type);
         if !iterator_type.is_compatible_with(&get_array_inner_type(&iterator_expr_type)) {
             panic!("Iterator variable type must be compatible with the type of the elements of the iterator expression!");
         }
@@ -498,8 +497,16 @@ impl Parser {
 
         let expression: SyntaxTree = self.parse_expression()?;
         let expr_type: Type = get_expr_type(&expression, &self.context).unwrap();
+
+        // if the type is an raw enum name and not an enum instantiation, it is not valid as it is
+        // not a type
+        match expr_type.basic_type {
+            SimpleType::Enum(_, _, None) => panic!("A raw enum is a type, not a value!"),
+            _ => ()
+        }
+
         if !var_type.is_compatible_with(&expr_type) {
-            panic!("Mismatch between variable and expression types!");
+            panic!("Mismatch between variable and expression types on line {}, col {}!", expression.start_line, expression.start_index);
         }
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -723,32 +730,33 @@ impl Parser {
     
     // Could either be a concatenation or an enum instantiation
     fn parse_concatenation(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        // parse_binary_operator!(self, parse_scalar_comparisons, DoubleColon => "::")
         let mut root: SyntaxTree = self.parse_scalar_comparisons()?;
         let (root_line, root_col) = (root.start_line, root.start_index);
-        let root_type = get_expr_type(&root, &self.context)?;
-        match root_type.basic_type {
-            SimpleType::Enum(name, _) => {
-                let next_token = self.tokens.pop_front().unwrap();
-                assert_token_type!(next_token, DoubleColon);
 
-                let next_token = self.tokens.pop_front().unwrap();
-                let variant_id = match next_token.token_type {
-                    TokenType::Identifier(id) => id,
-                    _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
-                };
-                
-                let enum_type = self.context.valid_type_identifiers.get(&name).unwrap();
-                Ok(SyntaxTree::new(
-                    SyntaxNode::EnumInstantiation(
-                        enum_type.clone(), 
-                        variant_id, 
-                        HashMap::new()
-                    ), 
-                    root_line, root_col)
-                )
-            },
+        // if the root is an identifier, check if it is for an enum, in which case it must be an
+        // enum instantiation and not a raw type name
+        let root_type = match root.node.clone() {
+            SyntaxNode::Identifier(id) => {
+                let rt = get_expr_type(&root, &self.context).unwrap();
+                match rt.basic_type {
+                    SimpleType::Enum(name, _, None) => {
+                        // is an enum name and must be am instantiation
+                        if self.context.valid_type_identifiers.contains_key(&id) {
+                            return self.parse_enum_instantiation(root, name);
+                        } 
 
+                        // is not an enum name
+                        get_expr_type(&root, &self.context)?
+                    },
+                    _ => rt
+                }
+            }
+
+            _ => get_expr_type(&root, &self.context)?
+        };
+        
+        match root_type.basic_type.clone() {
+            SimpleType::Enum(_, _, _) => Ok(root),
             _ => { // is an array concatenation
                 loop {
                     let next_token = self.tokens.pop_front().unwrap();
@@ -773,6 +781,29 @@ impl Parser {
                 Ok(root)
             }
         }
+    }
+
+
+    fn parse_enum_instantiation(&mut self, root: SyntaxTree, name: String) -> Result<SyntaxTree, Box<dyn Error>> {
+        let (root_line, root_col) = (root.start_line, root.start_index);
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, DoubleColon);
+
+        let next_token = self.tokens.pop_front().unwrap();
+        let variant_id = match next_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+        };
+        
+        let enum_type = self.context.valid_type_identifiers.get(&name).unwrap();
+        Ok(SyntaxTree::new(
+            SyntaxNode::EnumInstantiation(
+                enum_type.clone(), 
+                variant_id, 
+                HashMap::new()
+            ), 
+            root_line, root_col)
+        )
     }
 
 
@@ -1132,7 +1163,7 @@ impl Parser {
         let variants = self.parse_enum_variants()?;
         let variant_data = self.get_enum_variants_data(&variants);
 
-        let t: Type = Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data));
+        let t: Type = Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data, None));
         self.context.add_type(&identifier, t.clone());
         self.context.add_var(&identifier, t);
         Ok(SyntaxTree::new(SyntaxNode::Enumeraion(identifier, variants), start_line, start_index))
