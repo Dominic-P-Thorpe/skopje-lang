@@ -10,3 +10,4 @@ c_libs/*.gch
 c_libs/test.cpp
 !tests/*
 .vscode
+.editorconfig
