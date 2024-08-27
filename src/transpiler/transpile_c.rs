@@ -19,6 +19,7 @@
 //!     let mut transpiler = Transpiler::new(ast, "out.c");
 //! }
 //! ``` 
+use indexmap::IndexMap;
 use rand::distributions::{Alphanumeric, DistString};
 use std::error::Error;
 use std::fs::{File, OpenOptions};
@@ -249,7 +250,7 @@ impl Transpiler {
     }
 
 
-    fn transpile_typed_expr_c(&self, tree: &SyntaxTree, target: &Type) -> Result<String, Box<dyn Error>> {
+    fn transpile_typed_expr_c(&mut self, tree: &SyntaxTree, target: &Type) -> Result<String, Box<dyn Error>> {
         match &tree.node {
             SyntaxNode::TernaryExpression(cond, if_true, if_false) =>
                 Ok(self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))? + " ? " 
@@ -325,8 +326,19 @@ impl Transpiler {
                 ))
             }
 
-            SyntaxNode::EnumInstantiation(enum_type, variant, _) => match &enum_type.basic_type {
-                SimpleType::Enum(name, variants, _) => Ok(format!("{}({})", name, variants.get(variant).unwrap().1)),
+            SyntaxNode::EnumInstantiation(enum_type, variant, args) => match &enum_type.basic_type {
+                SimpleType::Enum(name, variants, _) => {
+                    let variant_data: &IndexMap<String, Type> = variants.get(variant).unwrap();
+                    let args_str = args.values()
+                                       .map(|v| self.transpile_typed_expr_c(&v, &Type::from_basic(SimpleType::I32)).unwrap())
+                                       .collect::<Vec<String>>().join(", ");
+                    
+                    if variant_data.len() == 0 {
+                        Ok(format!("{}({})", name, variants.get_index_of(variant).unwrap()))
+                    } else {
+                        Ok(format!("{}({}, {})", name, variants.get_index_of(variant).unwrap(), args_str))
+                    }
+                }
                 _ => panic!()
             }
 

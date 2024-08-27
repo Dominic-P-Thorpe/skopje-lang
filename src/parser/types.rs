@@ -1,4 +1,5 @@
-use std::{collections::HashMap, error::Error};
+use indexmap::IndexMap;
+use std::error::Error;
 
 use crate::Context;
 
@@ -21,7 +22,7 @@ pub enum SimpleType {
     // member number used to construct an instance of the enum of that member, and a hashmaps of 
     // data members to their types, and finally, an option to denote which, if any, variant this
     // enum type is of
-    Enum(String, HashMap<String, (HashMap<String, Type>, usize)>, Option<String>),
+    Enum(String, IndexMap<String, IndexMap<String, Type>>, Option<String>),
     IOMonad
 }
 

@@ -1,6 +1,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 
+use indexmap::IndexMap;
+
 use crate::semantics::typechecking::*;
 
 use super::types::SimpleType;
@@ -58,7 +60,7 @@ pub enum SyntaxNode {
     // name, variants
     Enumeraion(String, Vec<SyntaxTree>),
     // name, parameters (param name, param type)
-    EnumVariant(String, Vec<(String, Type)>),
+    EnumVariant(String, IndexMap<String, Type>),
     // Enum type, variant name, variant arguments
     EnumInstantiation(Type, String, HashMap<String, SyntaxTree>),
     // function name, arguments (id, type), return type, body statements
@@ -794,16 +796,57 @@ impl Parser {
             TokenType::Identifier(id) => id,
             _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
         };
-        
+
+        let variant_params: HashMap<String, SyntaxTree> = self.parse_enum_variant_params()?;
         let enum_type = self.context.valid_type_identifiers.get(&name).unwrap();
         Ok(SyntaxTree::new(
             SyntaxNode::EnumInstantiation(
                 enum_type.clone(), 
                 variant_id, 
-                HashMap::new()
+                variant_params
             ), 
             root_line, root_col)
         )
+    }
+
+
+    fn parse_enum_variant_params(&mut self) -> Result<HashMap<String, SyntaxTree>, Box<dyn Error>> {
+        let mut variant_params: HashMap<String, SyntaxTree> = HashMap::new();
+        let next_token = self.tokens.pop_front().unwrap();
+        match next_token.token_type {
+            TokenType::OpenParen => {
+                loop {
+                    // get the id of the argument
+                    let next_token = self.tokens.pop_front().unwrap();
+                    let arg_id = match next_token.token_type {
+                        TokenType::Identifier(id) => id,
+                        _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+                    };
+
+                    // assert the id is followed by a token
+                    let next_token = self.tokens.pop_front().unwrap();
+                    assert_token_type!(next_token, Colon);
+
+                    // get the expression associated with this argument
+                    let arg = self.parse_expression()?;
+                    variant_params.insert(arg_id, arg);
+
+                    // check if the list of arguments has ended or not
+                    let next_token = self.tokens.pop_front().unwrap();
+                    match next_token.token_type {
+                        TokenType::CloseParen => break,
+                        TokenType::Comma => continue,
+                        _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                    }
+                }
+
+                Ok(variant_params)
+            },
+            _ => { // if there is no list of arguments, return an empty map
+                self.tokens.push_front(next_token);
+                Ok(HashMap::new())
+            } 
+        }
     }
 
 
@@ -1135,15 +1178,13 @@ impl Parser {
     }
 
 
-    fn get_enum_variants_data(&self, variants: &Vec<SyntaxTree>) -> HashMap<String, (HashMap<String, Type>, usize)> {
-        let mut result: HashMap<String, (HashMap<String, Type>, usize)> = HashMap::new();
-        let mut index: usize = 0;
+    fn get_enum_variants_data(&self, variants: &Vec<SyntaxTree>) -> IndexMap<String, IndexMap<String, Type>> {
+        let mut result: IndexMap<String, IndexMap<String, Type>> = IndexMap::new();
         for variant in variants {
             match &variant.node {
-                SyntaxNode::EnumVariant(name, _) => result.insert(name.to_string(), (HashMap::new(), index)),
+                SyntaxNode::EnumVariant(name, params) => result.insert(name.to_string(), params.clone()),
                 _ => panic!()
             };
-            index += 1;
         }
 
         result
@@ -1188,13 +1229,53 @@ impl Parser {
 
 
     fn parse_enum_variant(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        // get the enum variant name
         let next_token = self.tokens.pop_front().unwrap();
-        match next_token.token_type {
-            TokenType::Identifier(id) => Ok(SyntaxTree::new(
-                SyntaxNode::EnumVariant(id, vec![]), 
-                next_token.line_number, next_token.col_number
-            )),
-            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
-        }
+        let identifier = match next_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+        };
+
+        let next_token = self.tokens.pop_front().unwrap();
+        let params: IndexMap<String, Type> = match next_token.token_type {
+            TokenType::OpenParen => {
+                let mut params: IndexMap<String, Type> = IndexMap::new();
+                // loop collecting the parameters of the variant (if any)
+                loop {
+                    // gets the id of the parameter and the parameter's type, and adds it to params
+                    let next_token = self.tokens.pop_front().unwrap();
+                    match next_token.token_type {
+                        TokenType::Identifier(param_id) => {
+                            let next_token = self.tokens.pop_front().unwrap();
+                            assert_token_type!(next_token, Colon);
+                            let param_type = self.parse_type()?;
+                            params.insert(param_id, param_type);
+                        },
+                        _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+                    }
+
+                    // end the loop if it is the end of the params list, or continue if there is
+                    // another parameter
+                    let next_token = self.tokens.pop_front().unwrap();
+                    match next_token.token_type {
+                        TokenType::CloseParen => break,
+                        TokenType::Comma => continue,
+                        _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                    }
+                }
+
+                params
+            }
+
+            _ => {
+                self.tokens.push_front(next_token.clone());
+                IndexMap::new()
+            }
+        };
+
+        Ok(SyntaxTree::new(
+            SyntaxNode::EnumVariant(identifier, params), 
+            next_token.line_number, next_token.col_number
+        ))
     }
 }
