@@ -350,40 +350,59 @@ impl Transpiler {
     fn transpile_enum(&self, name: &String, variants: &Vec<SyntaxTree>, indent: usize) -> Result<String, Box<dyn Error>> {
         let string = format!("
 class {0} {{
-private:
+public:
     enum Tag {{
         {1}
     }};
 
-    Tag tag;
-
-
-public:
     union InternalUnion {{
         {2}
     }};
-
-    InternalUnion value;
     
-    template<typename... T>
-    {0}(int inner_type, T... args) {{
-        this->tag = static_cast<Tag>(inner_type);
-        this->value = InternalUnion(args...);
+    template <typename... Args>
+    {0}(int variant, Args... args) {{
+        this->tag = static_cast<Tag>(variant);
+        switch(this->tag) {{
+            {3}
+        }};
     }}
+
+
+private:
+    InternalUnion value;
+    Tag tag;
 }};\n\n", 
-            name,
+            name, // name of the enumeration
+            // names of the variants as a comma-and-newline-separated list indented appropriately to 
+            // be members of the Tag enum
             variants.iter().map(
                 |v| match &v.node {
                     SyntaxNode::EnumVariant(name, _) => capitalize(name),
                     _ => panic!()
                 }
             ).collect::<Vec<String>>().join(&format!(",\n\t\t{}", "    ".repeat(indent))),
+
+            // the members of the internal union, formatted as "struct <CAPITALIZED_NAME> {} 
+            // <LOWERCASE_NAME>;"
             variants.iter().map(
                 |v| match &v.node {
                     SyntaxNode::EnumVariant(name, _) => format!("struct {} {{}} {};", capitalize(name), name.to_lowercase()),
                     _ => panic!()
                 }
             ).collect::<Vec<String>>().join(&format!("\n\t\t{}", "    ".repeat(indent))),
+
+            // the switch statement for the constructor which contains a case for each variant in
+            // the enumeration to ensure proper instantiation
+            variants.iter().map(
+                |v| match &v.node {
+                    SyntaxNode::EnumVariant(name, _) => format!("
+            case {0}:
+                this->value.{1} = create_struct<InternalUnion::{0}>();
+                break;
+", capitalize(name), name.to_lowercase()),
+                    _ => panic!()
+                }
+            ).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent)))
         );
         Ok(string)
     }

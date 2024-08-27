@@ -151,4 +151,13 @@ std::array<T, N> make_array(U&&... values) {
     return arr;
 }
 
+
+template <typename T, typename... Args>
+constexpr T create_struct(Args... args) {
+    if constexpr (std::is_empty_v<T>)
+        return T {};
+    else
+        return T {args...};
+}
+
 #endif
