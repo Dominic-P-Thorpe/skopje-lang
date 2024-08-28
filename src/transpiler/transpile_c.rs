@@ -384,12 +384,10 @@ private:
 
             // the members of the internal union, formatted as "struct <CAPITALIZED_NAME> {} 
             // <LOWERCASE_NAME>;"
-            variants.iter().map(
-                |v| match &v.node {
-                    SyntaxNode::EnumVariant(name, _) => format!("struct {} {{}} {};", capitalize(name), name.to_lowercase()),
-                    _ => panic!()
-                }
-            ).collect::<Vec<String>>().join(&format!("\n\t\t{}", "    ".repeat(indent))),
+            variants.iter()
+                    .map(|v| self.transpile_variant_to_struct(v))
+                    .collect::<Vec<String>>()
+                    .join(&format!("\n\t\t{}", "    ".repeat(indent))),
 
             // the switch statement for the constructor which contains a case for each variant in
             // the enumeration to ensure proper instantiation
@@ -397,14 +395,35 @@ private:
                 |v| match &v.node {
                     SyntaxNode::EnumVariant(name, _) => format!("
             case {0}:
-                this->value.{1} = create_struct<InternalUnion::{0}>();
+                this->value.{1} = create_struct<InternalUnion::{0}>(args...);
                 break;
-", capitalize(name), name.to_lowercase()),
+", 
+                        capitalize(name), 
+                        name.to_lowercase()
+                    ),
                     _ => panic!()
                 }
             ).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent)))
         );
         Ok(string)
+    }
+
+
+    fn transpile_variant_to_struct(&self, variant: &SyntaxTree) -> String {
+        match &variant.node {
+            SyntaxNode::EnumVariant(name, args) =>
+                if args.len() == 0 {
+                    format!("struct {} {{}} {};", capitalize(&name), name.to_lowercase())
+                } else {
+                    format!(
+                        "struct {} {{\n{}\n\t\t}} {};", 
+                        capitalize(&name),
+                        args.iter().map(|(k, v)| format!("\t\t\t{} {};", v.as_ctype_str(), k)).collect::<Vec<String>>().join(";\n"),
+                        name.to_lowercase()
+                    )
+                }
+            _ => panic!()
+        }
     }
 }
 
