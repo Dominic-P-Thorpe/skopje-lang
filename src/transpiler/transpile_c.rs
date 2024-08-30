@@ -27,7 +27,7 @@ use std::io::Write;
 
 use crate::parser::types::{Type, SimpleType};
 use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type};
-use crate::{SyntaxNode, SyntaxTree};
+use crate::{Pattern, SyntaxNode, SyntaxTree};
 
 
 /// The core of the transpiler module, containing data and methods needed to transpile from Skopje
@@ -244,9 +244,42 @@ impl Transpiler {
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
             }
 
+            SyntaxNode::MatchStmt(match_expr, patterns, match_type) => {
+                assert!(patterns.len() > 0);
+                // TODO: adapt this to take non-enum expression types
+                Ok(format!(
+                    "{0}switch ({1}.getTag()) {{\n{2}\n{0}}}", 
+                    "    ".repeat(indent),
+                    self.transpile_typed_expr_c(match_expr, match_type)?,
+                    self.transpile_patterns(patterns, indent + 1)?
+                ))
+            }
+
             SyntaxNode::Enumeraion(name, variants) => self.transpile_enum(name, variants, indent),
             other => panic!("{:?} is not a valid node!", other)
         }
+    }
+
+
+    fn transpile_patterns(&mut self, patterns: &Vec<(Vec<Pattern>, Vec<SyntaxTree>)>, indent: usize) -> Result<String, Box<dyn Error>> {
+        let mut patterns_strs: Vec<String> = vec![];
+        for (pattern, body) in patterns {
+            // get the first pattern in the list of patterns to match against
+            let pattern = pattern.get(0).unwrap();
+            match pattern {
+                Pattern::EnumPattern(enum_name, variant_name, _) => patterns_strs.push(format!(
+                    "{0}case {1}::{2}:\n{3}\n\t{0}break;",
+                    "    ".repeat(indent),
+                    enum_name,
+                    variant_name,
+                    // transpile the body of the pattern branch
+                    body.iter().map(|stmt| self.transpile_c_tree(stmt, indent + 1).unwrap()).collect::<Vec<String>>().join("\n")
+                ))
+            }
+        }
+
+        // join the pattern branches together
+        Ok(patterns_strs.join("\n\n"))
     }
 
 
@@ -365,6 +398,15 @@ public:
         switch(this->tag) {{
             {3}
         }};
+    }}
+
+    template <typename... T>
+    std::tuple<T...> getValue() {{
+        return this->value;
+    }}
+
+    Tag getTag() {{ 
+        return this->tag; 
     }}
 
 

@@ -48,7 +48,8 @@ pub enum ExpectedToken {
     Arrow,
     Equal,
     Semicolon,
-    DoubleColon
+    DoubleColon,
+    ThickArrow
 }
 
 

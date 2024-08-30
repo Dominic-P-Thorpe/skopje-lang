@@ -327,6 +327,9 @@ impl Scanner {
                 if let Some('=') = self.peek(line, 0) {
                     self.advance();
                     return Ok(TokenType::DoubleEqual);
+                } else if let Some('>') = self.peek(line, 0) {
+                    self.advance();
+                    return Ok(TokenType::ThickArrow);
                 } else {
                     return Ok(TokenType::Equal);
                 }
@@ -390,6 +393,7 @@ impl Scanner {
                             "enum" => return Ok(TokenType::EnumKeyword),
                             "true" => return Ok(TokenType::BoolLiteral(true)),
                             "false" => return Ok(TokenType::BoolLiteral(false)),
+                            "match" => return Ok(TokenType::MatchKeyword),
                             // is not a keyword, and therefore is an identifier
                             _ => return Ok(TokenType::Identifier(token_text.to_owned()))
                         }

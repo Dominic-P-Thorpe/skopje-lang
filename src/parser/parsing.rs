@@ -55,6 +55,13 @@ macro_rules! assert_token_type {
 
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    // enum name, pattern name, pattern data params
+    EnumPattern(String, String, Vec<Pattern>)
+}
+
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum SyntaxNode {
     Program(Vec<SyntaxTree>),
     // name, variants
@@ -71,6 +78,11 @@ pub enum SyntaxNode {
     WhileStmt(Box<SyntaxTree>, Vec<SyntaxTree>),
     // Loop variable name, loop var type, expr to loop over, loop body
     ForStmt(String, Type, Box<SyntaxTree>, Vec<SyntaxTree>),
+    // expression to match, patterns to match against and syntax tree to run if match succeeds,
+    // type of the expression to match
+    // Members of vector of patterns are a tuple where the first element is a vector of patterns
+    // and the second is the body to run if any of those patterns are a match
+    MatchStmt(Box<SyntaxTree>, Vec<(Vec<Pattern>, Vec<SyntaxTree>)>, Type),
     // variable name, type, expression
     LetStmt(String, Type, Box<SyntaxTree>),
     // variable name, new value expression, type of the variable being reassigned
@@ -380,7 +392,77 @@ impl Parser {
             TokenType::Identifier(id) => self.parse_func_call_or_reassignment_stmt(id, next_token.line_number, next_token.col_number),
             TokenType::LetKeyword => self.parse_let_statement(next_token.line_number, next_token.col_number),
             TokenType::ForKeyword => self.parse_for_loop(next_token.line_number, next_token.col_number),
+            TokenType::MatchKeyword => self.parse_match_stmt(next_token.line_number, next_token.col_number),
             _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Statement)))
+        }
+    }
+
+
+    fn parse_match_stmt(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        let match_expr = self.parse_expression()?;
+        let match_expr_type = get_expr_type(&match_expr, &self.context)?;
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, OpenCurly);
+
+        let patterns = self.parse_match_patterns()?;
+
+        Ok(SyntaxTree::new(SyntaxNode::MatchStmt(
+            Box::new(match_expr), 
+            patterns,
+            match_expr_type
+        ), 
+        line_num, col_num))
+    }
+
+
+    fn parse_match_patterns(&mut self) -> Result<Vec<(Vec<Pattern>, Vec<SyntaxTree>)>, Box<dyn Error>> {
+        let mut patterns: Vec<(Vec<Pattern>, Vec<SyntaxTree>)> = vec![];
+        loop {
+            let pattern = self.parse_match_pattern()?;
+
+            let next_token = self.tokens.pop_front().unwrap();
+            assert_token_type!(next_token, ThickArrow);
+            let next_token = self.tokens.pop_front().unwrap();
+            assert_token_type!(next_token, OpenCurly);
+
+            let statement_block: Vec<SyntaxTree> = self.parse_stmt_block()?;
+
+            let next_token = self.tokens.pop_front().unwrap();
+            assert_token_type!(next_token, CloseCurly);
+
+            patterns.push((vec![pattern], statement_block));
+
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Comma => continue,
+                TokenType::CloseCurly => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly)))
+            }
+        }
+
+        Ok(patterns)
+    }
+
+
+    fn parse_match_pattern(&mut self) -> Result<Pattern, Box<dyn Error>> {
+        let next_token = self.tokens.pop_front().unwrap();
+        match next_token.token_type {
+            TokenType::Identifier(enum_name) => {
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, DoubleColon);
+
+                let next_token = self.tokens.pop_front().unwrap();
+                let variant_name = if let TokenType::Identifier(name) = next_token.token_type {
+                    name
+                } else {
+                    panic!()
+                };
+
+                Ok(Pattern::EnumPattern(enum_name, variant_name, vec![]))
+            }
+
+            _ => panic!()
         }
     }
 
