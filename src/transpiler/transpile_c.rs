@@ -409,8 +409,7 @@ public:
         switch(this->tag) {{{3}\t\t}};
     }}
 
-    template <typename... T>
-    std::tuple<T...> getValue() {{
+    InternalUnion getValue() {{
         return this->value;
     }}
 
