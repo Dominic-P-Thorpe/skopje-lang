@@ -65,9 +65,9 @@ pub enum Pattern {
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum SyntaxNode {
-    Program(Vec<SyntaxTree>),
+    Program(Box<SyntaxTree>),
     // name, variants
     Enumeraion(String, Vec<SyntaxTree>),
     // name, parameters (param name, param type)
@@ -75,25 +75,25 @@ pub enum SyntaxNode {
     // Enum type, variant name, variant arguments
     EnumInstantiation(Type, String, HashMap<String, SyntaxTree>),
     // function name, arguments (id, type), return type, body statements
-    Function(String, Vec<(String, Type)>, Type, Vec<SyntaxTree>),
+    Function(String, Vec<(String, Type)>, Type, Box<SyntaxTree>),
     // expression to return
     ReturnStmt(Box<SyntaxTree>),
     // condition, body
-    WhileStmt(Box<SyntaxTree>, Vec<SyntaxTree>),
+    WhileStmt(Box<SyntaxTree>, Box<SyntaxTree>),
     // Loop variable name, loop var type, expr to loop over, loop body
-    ForStmt(String, Type, Box<SyntaxTree>, Vec<SyntaxTree>),
+    ForStmt(String, Type, Box<SyntaxTree>, Box<SyntaxTree>),
     // expression to match, patterns to match against and syntax tree to run if match succeeds,
     // type of the expression to match
     // Members of vector of patterns are a tuple where the first element is a vector of patterns
     // and the second is the body to run if any of those patterns are a match
-    MatchStmt(Box<SyntaxTree>, Vec<(Vec<Pattern>, Vec<SyntaxTree>)>, Type),
+    MatchStmt(Box<SyntaxTree>, Vec<(Vec<Pattern>, SyntaxTree)>, Type),
     // variable name, type, expression
     LetStmt(String, Type, Box<SyntaxTree>),
     // variable name, new value expression, type of the variable being reassigned
     // type is needed so that is can be used when generating the C++ code
     ReassignmentStmt(Box<SyntaxTree>, Box<SyntaxTree>, Type),
     // condition, body, optional else
-    SelectionStatement(Box<SyntaxTree>, Vec<SyntaxTree>, Option<Vec<SyntaxTree>>),
+    SelectionStatement(Box<SyntaxTree>, Box<SyntaxTree>, Box<Option<SyntaxTree>>),
     // binary operation, left side, right side
     BinaryOperation(String, Box<SyntaxTree>, Box<SyntaxTree>),
     RightAssocUnaryOperation(String, Box<SyntaxTree>),
@@ -106,7 +106,7 @@ pub enum SyntaxNode {
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
-    MonadicExpr(Vec<SyntaxTree>),
+    MonadicExpr(Box<SyntaxTree>),
     // function name, arguments
     FunctionCall(String, Vec<SyntaxTree>),
     FunctionCallStmt(String, Vec<SyntaxTree>),
@@ -117,11 +117,13 @@ pub enum SyntaxNode {
     ArrayLiteral(Vec<SyntaxTree>, Type),
     // store the type so that if the type is an std::unique_ptr we know to use std::move when we 
     // want to use it
-    Identifier(String) 
+    Identifier(String),
+    // a block of statements represented as a vec, and a pointer to the symbol table of that block
+    StmtBlock(Vec<SyntaxTree>, Rc<RefCell<SymbolTable>>)
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct SyntaxTree {
     pub node: SyntaxNode,
     pub start_index: usize,
@@ -184,7 +186,8 @@ impl Parser {
             }
         }
 
-        Ok(SyntaxTree::new(SyntaxNode::Program(top_level_constructs), 0, 0))
+        let program_block = SyntaxTree::new(SyntaxNode::StmtBlock(top_level_constructs, self.symbol_table_root.clone()), 0, 0);
+        Ok(SyntaxTree::new(SyntaxNode::Program(Box::new(program_block)), 0, 0))
     }
 
 
@@ -238,7 +241,7 @@ impl Parser {
             ), false, vec![]);
             self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Function(id.clone(), func_type), line_num, col_num));
             return Ok(SyntaxTree::new(
-                SyntaxNode::Function(id, params, return_type, body), line_num, col_num
+                SyntaxNode::Function(id, params, return_type, Box::new(body)), line_num, col_num
             ));
         }
 
@@ -300,7 +303,7 @@ impl Parser {
     ///  - variable declarations and reassignments
     ///  - expressions
     ///  - if-else statements
-    fn parse_stmt_block(&mut self) -> Result<Vec<SyntaxTree>, Box<dyn Error>> {
+    fn parse_stmt_block(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
         let mut statements: Vec<SyntaxTree> = vec![];
         loop {
@@ -312,11 +315,16 @@ impl Parser {
             }
         }
 
+        let (start_line, start_index) = (statements.first().unwrap().start_line, statements.first().unwrap().start_index);
+
         let parent_symbol_table = self.current_symbol_table.borrow()
                                                                                      .parent.as_ref().unwrap()
                                                                                      .upgrade().unwrap();
         self.current_symbol_table = parent_symbol_table;
-        Ok(statements)
+        Ok(SyntaxTree::new(
+            SyntaxNode::StmtBlock(statements, self.current_symbol_table.clone()), 
+            start_line, start_index
+        ))
     }
 
 
@@ -353,8 +361,8 @@ impl Parser {
     }
 
 
-    fn parse_match_patterns(&mut self) -> Result<Vec<(Vec<Pattern>, Vec<SyntaxTree>)>, Box<dyn Error>> {
-        let mut patterns: Vec<(Vec<Pattern>, Vec<SyntaxTree>)> = vec![];
+    fn parse_match_patterns(&mut self) -> Result<Vec<(Vec<Pattern>, SyntaxTree)>, Box<dyn Error>> {
+        let mut patterns: Vec<(Vec<Pattern>, SyntaxTree)> = vec![];
         loop {
             let pattern = self.parse_match_pattern()?;
 
@@ -363,7 +371,7 @@ impl Parser {
             let next_token = self.tokens.pop_front().unwrap();
             assert_token_type!(next_token, OpenCurly);
 
-            let statement_block: Vec<SyntaxTree> = self.parse_stmt_block()?;
+            let statement_block: SyntaxTree = self.parse_stmt_block()?;
 
             let next_token = self.tokens.pop_front().unwrap();
             assert_token_type!(next_token, CloseCurly);
@@ -474,7 +482,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, CloseCurly);
 
-        Ok(SyntaxTree::new(SyntaxNode::ForStmt(iterator_id, iterator_type, Box::new(iterator_expr), body), line_num, col_num))
+        Ok(SyntaxTree::new(SyntaxNode::ForStmt(iterator_id, iterator_type, Box::new(iterator_expr), Box::new(body)), line_num, col_num))
     }
 
 
@@ -682,7 +690,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, CloseCurly);
 
-        Ok(SyntaxTree::new(SyntaxNode::WhileStmt(Box::new(expr), body), line_num, col_num))
+        Ok(SyntaxTree::new(SyntaxNode::WhileStmt(Box::new(expr), Box::new(body)), line_num, col_num))
     }
 
 
@@ -1145,7 +1153,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, CloseCurly);
 
-        Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(body), line, col))
+        Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(Box::new(body)), line, col))
     }
 
 
@@ -1200,7 +1208,7 @@ impl Parser {
 
             _ => {
                 self.tokens.push_front(next_token);
-                vec![self.parse_statement()?]
+                self.parse_statement()?
             }
         };
 
@@ -1218,7 +1226,7 @@ impl Parser {
 
                     _ => {
                         self.tokens.push_front(next_token);
-                        vec![self.parse_statement()?]
+                        self.parse_statement()?
                     }
                 })
             },
@@ -1229,7 +1237,7 @@ impl Parser {
             }
         };
 
-        Ok(SyntaxTree::new(SyntaxNode::SelectionStatement(Box::new(cond), if_body, else_body), line_num, col_num))
+        Ok(SyntaxTree::new(SyntaxNode::SelectionStatement(Box::new(cond), Box::new(if_body), Box::new(else_body)), line_num, col_num))
     }
 
 

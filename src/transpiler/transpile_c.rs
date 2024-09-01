@@ -96,10 +96,7 @@ impl Transpiler {
         self.file.write(b"#include \"c_libs/helper.h\"\n")?;
 
         if let SyntaxNode::Program(statements) = &self.ast.node.clone() {
-            let mut statements_text: String = String::new();
-            for statement in statements {
-                statements_text += &self.transpile_c_tree(statement, 0)?;
-            }
+            let statements_text: String = self.transpile_c_tree(&statements, 1)?;
 
             // write all the auxilliary functions to the source file
             for func in &self.functions_source {
@@ -120,16 +117,23 @@ impl Transpiler {
 
     fn transpile_c_tree(&mut self, tree: &SyntaxTree, indent: usize) -> Result<String, Box<dyn Error>>{
         match &tree.node {
+            SyntaxNode::StmtBlock(statements, _) => {
+                let mut statements_text = String::new();
+                for statement in statements {
+                    statements_text += &format!("\n{0}", "\t".repeat(indent));
+                    statements_text += &self.transpile_c_tree(statement, 0)?;
+                }
+
+                Ok(statements_text)
+            }
+
             SyntaxNode::Function(name, args, return_type, body) => {
                 let args_string = args.iter()
                                       .map(|(p_id, p_type)| format!("{} {}", p_type.basic_type.as_ctype_str(), p_id))
                                       .collect::<Vec<String>>()
                                       .join(", ");
                 let return_type_text = return_type.as_ctype_str();
-                let body_text = body.iter()
-                                    .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
-                                    .collect::<Vec<String>>()
-                                    .join("\n");
+                let body_text = self.transpile_c_tree(body, indent + 1)?;
                 
                 // main function is a special case as it must have the return type of "int", so we
                 // convert this function's name to a different name (__special__main())
@@ -160,32 +164,25 @@ impl Transpiler {
                 Ok(format!("{}{}({});", "    ".repeat(indent), func_id, args.join(", ")))
             },
 
-            SyntaxNode::SelectionStatement(cond, if_body, None) => {
-                Ok(format!(
-                    "{0}if ({1}) {{\n{2}\n{0}}}",
-                    "    ".repeat(indent), 
-                    self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
-                    if_body.iter()
-                           .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
-                           .collect::<Vec<String>>()
-                           .join("\n")
-                )) 
-            }
+            SyntaxNode::SelectionStatement(cond, if_body, else_body) => {
+                match &**else_body {
+                    None => 
+                        Ok(format!(
+                            "{0}if ({1}) {{\n{2}\n{0}}}",
+                            "    ".repeat(indent), 
+                            self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
+                            self.transpile_c_tree(if_body, indent + 1)?
+                        )),
 
-            SyntaxNode::SelectionStatement(cond, if_body, Some(else_body)) => {
-                Ok(format!(
-                    "{0}if ({1}) {{\n{2}\n{0}}} else {{\n{3}\n{0}}}", 
-                    "    ".repeat(indent), 
-                    self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
-                    if_body.iter()
-                           .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
-                           .collect::<Vec<String>>()
-                           .join("\n"),
-                    else_body.iter()
-                             .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
-                             .collect::<Vec<String>>()
-                             .join("\n")
-                )) 
+                    Some(else_body) => 
+                        Ok(format!(
+                            "{0}if ({1}) {{\n{2}\n{0}}} else {{\n{3}\n{0}}}", 
+                            "    ".repeat(indent), 
+                            self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
+                            self.transpile_c_tree(if_body, indent + 1)?,
+                            self.transpile_c_tree(&else_body, indent + 1)?
+                        )) 
+                }
             }
 
             SyntaxNode::ForStmt(iterator_name, iterator_type, iterator_expr, body) => {
@@ -198,10 +195,7 @@ impl Transpiler {
                         iterator_expr, 
                         &Type::new(SimpleType::Iterator(Box::new(iterator_type.clone())), false, vec![])
                     )?,
-                    body.iter()
-                        .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
-                        .collect::<Vec<String>>()
-                        .join("\n")
+                    self.transpile_c_tree(body, indent + 1)?
                 ))
             }
             
@@ -210,10 +204,7 @@ impl Transpiler {
                     "{0}while ({1}) {{\n{2}{0}\n{0}}}\n", 
                     "    ".repeat(indent),
                     self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
-                    body.iter()
-                        .map(|s| self.transpile_c_tree(s, indent + 1).unwrap())
-                        .collect::<Vec<String>>()
-                        .join("\n")
+                    self.transpile_c_tree(body, indent + 1)?
                 ))
             }
 
@@ -234,9 +225,7 @@ impl Transpiler {
 
             SyntaxNode::MonadicExpr(body) => {
                 let monad_func_name = self.get_next_auxilliary_func_name();
-                let body_code: String = body.iter()
-                                            .map(|s| self.transpile_c_tree(s, 1).unwrap())
-                                            .collect::<String>();
+                let body_code: String = self.transpile_c_tree(body, indent + 1)?;
                 self.functions_source.push(
                     format!("void {}() {{\n{}\n}}", monad_func_name, body_code)
                 );
@@ -269,19 +258,19 @@ impl Transpiler {
     }
 
 
-    fn transpile_patterns(&mut self, patterns: &Vec<(Vec<Pattern>, Vec<SyntaxTree>)>, match_expr_str: &str, indent: usize) -> Result<String, Box<dyn Error>> {
+    fn transpile_patterns(&mut self, patterns: &Vec<(Vec<Pattern>, SyntaxTree)>, match_expr_str: &str, indent: usize) -> Result<String, Box<dyn Error>> {
         let mut patterns_strs: Vec<String> = vec![];
         for (pattern, body) in patterns {
             // get the first pattern in the list of patterns to match against
             let pattern = pattern.get(0).unwrap();
             match pattern {
                 Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => patterns_strs.push(format!(
-                    "{0}case {1}::{2}: {{\n{0}\tauto iu = {4}.getValue().{5};\n{6}\n{3}\n\t{0}break;\n{0}}}",
+                    "{0}case {1}::{2}: {{\n{0}\tauto iu = {4}.getValue().{5};\n{6}\n{0}\t{3}\n\t{0}break;\n{0}}}",
                     "    ".repeat(indent),
                     enum_name,
                     variant_name,
                     // transpile the body of the pattern branch
-                    body.iter().map(|stmt| self.transpile_c_tree(stmt, indent + 1).unwrap()).collect::<Vec<String>>().join("\n"),
+                    self.transpile_c_tree(body, indent + 1)?,
                     match_expr_str,
                     variant_name.to_lowercase(),
                     inner_patterns.iter().map(|p| match p {
@@ -294,7 +283,7 @@ impl Transpiler {
                     "{0}default: {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}break;\n{0}}}", 
                     "    ".repeat(indent),
                     id, match_expr_str,
-                    body.iter().map(|stmt| self.transpile_c_tree(stmt, indent + 1).unwrap()).collect::<Vec<String>>().join("\n"),
+                    self.transpile_c_tree(body, indent + 1)?,
                 ))
             }
         }
