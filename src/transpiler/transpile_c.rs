@@ -285,6 +285,12 @@ impl Transpiler {
                     capitalize(variant_name),
                     match_expr_str,
                     variant_name.to_lowercase()
+                )),
+                
+                Pattern::IdentifierPattern(id) => patterns_strs.push(format!(
+                    "{0}default: {{\n\t{0}auto {1} = {2}.getValue();\n\t{0}break;\n{0}}}", 
+                    "    ".repeat(indent),
+                    id, match_expr_str
                 ))
             }
         }

@@ -60,7 +60,8 @@ macro_rules! assert_token_type {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     // enum name, pattern name, pattern data params
-    EnumPattern(String, String, Vec<Pattern>)
+    EnumPattern(String, String, Vec<Pattern>),
+    IdentifierPattern(String)
 }
 
 
@@ -385,8 +386,13 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::Identifier(enum_name) => {
-                let next_token = self.tokens.pop_front().unwrap();
-                assert_token_type!(next_token, DoubleColon);
+                let next_token = self.tokens.front().unwrap();
+                
+                // check if this is an identifier pattern or an identifier pattern
+                match next_token.token_type {
+                    TokenType::DoubleColon => self.tokens.pop_front(),
+                    _ => return Ok(Pattern::IdentifierPattern(enum_name))
+                };
 
                 let next_token = self.tokens.pop_front().unwrap();
                 let variant_name = if let TokenType::Identifier(name) = next_token.token_type {
@@ -395,11 +401,34 @@ impl Parser {
                     panic!()
                 };
 
-                Ok(Pattern::EnumPattern(enum_name, variant_name, vec![]))
+                match self.tokens.front().unwrap().token_type {
+                    TokenType::ThickArrow => Ok(Pattern::EnumPattern(enum_name, variant_name, vec![])),
+                    TokenType::OpenParen => Ok(Pattern::EnumPattern(enum_name, variant_name, self.parse_enum_pattern_data_params()?)),
+                    _ => Err(Box::new(ParsingError::UnexpectedToken(self.tokens.front().unwrap().clone(), ExpectedToken::ThickArrow)))
+                }
             }
 
             _ => panic!()
         }
+    }
+
+
+    fn parse_enum_pattern_data_params(&mut self) -> Result<Vec<Pattern>, Box<dyn Error>> {
+        let mut data_params: Vec<Pattern> = vec![];
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, OpenParen);
+
+        loop {
+            data_params.push(self.parse_match_pattern()?);
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Comma => continue,
+                TokenType::CloseParen => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+            }
+        }
+
+        Ok(data_params)
     }
 
 
