@@ -275,22 +275,26 @@ impl Transpiler {
             // get the first pattern in the list of patterns to match against
             let pattern = pattern.get(0).unwrap();
             match pattern {
-                Pattern::EnumPattern(enum_name, variant_name, _) => patterns_strs.push(format!(
-                    "{0}case {1}::{2}: {{\n{0}\t{1}::InternalUnion::{4} iu = {5}.getValue().{6};\n{3}\n\t{0}break;\n{0}}}",
+                Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => patterns_strs.push(format!(
+                    "{0}case {1}::{2}: {{\n{0}\tauto iu = {4}.getValue().{5};\n{6}\n{3}\n\t{0}break;\n{0}}}",
                     "    ".repeat(indent),
                     enum_name,
                     variant_name,
                     // transpile the body of the pattern branch
                     body.iter().map(|stmt| self.transpile_c_tree(stmt, indent + 1).unwrap()).collect::<Vec<String>>().join("\n"),
-                    capitalize(variant_name),
                     match_expr_str,
-                    variant_name.to_lowercase()
+                    variant_name.to_lowercase(),
+                    inner_patterns.iter().map(|p| match p {
+                        Pattern::IdentifierPattern(id) => format!("{0}auto {1} = iu.{1};", "\t".repeat(indent + 1), id),
+                        _ => panic!()
+                    }).collect::<Vec<String>>().join("\n")
                 )),
                 
                 Pattern::IdentifierPattern(id) => patterns_strs.push(format!(
-                    "{0}default: {{\n\t{0}auto {1} = {2}.getValue();\n\t{0}break;\n{0}}}", 
+                    "{0}default: {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}break;\n{0}}}", 
                     "    ".repeat(indent),
-                    id, match_expr_str
+                    id, match_expr_str,
+                    body.iter().map(|stmt| self.transpile_c_tree(stmt, indent + 1).unwrap()).collect::<Vec<String>>().join("\n"),
                 ))
             }
         }
