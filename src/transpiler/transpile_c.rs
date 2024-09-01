@@ -264,20 +264,31 @@ impl Transpiler {
             // get the first pattern in the list of patterns to match against
             let pattern = pattern.get(0).unwrap();
             match pattern {
-                Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => patterns_strs.push(format!(
-                    "{0}case {1}::{2}: {{\n{0}\tauto iu = {4}.getValue().{5};\n{6}\n{0}\t{3}\n\t{0}break;\n{0}}}",
-                    "    ".repeat(indent),
-                    enum_name,
-                    variant_name,
-                    // transpile the body of the pattern branch
-                    self.transpile_c_tree(body, indent + 1)?,
-                    match_expr_str,
-                    variant_name.to_lowercase(),
-                    inner_patterns.iter().map(|p| match p {
-                        Pattern::IdentifierPattern(id) => format!("{0}auto {1} = iu.{1};", "\t".repeat(indent + 1), id),
+                Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => {
+                    let enum_type: Type = match &body.node {
+                        SyntaxNode::StmtBlock(_, symbol_table) => 
+                            symbol_table.borrow().get(enum_name).unwrap().get_type(),
                         _ => panic!()
-                    }).collect::<Vec<String>>().join("\n")
-                )),
+                    };
+
+                    patterns_strs.push(format!(
+                        "
+{0}case {1}::{2}: {{
+    {0}auto iu = {4}.getValue().{5};
+    {6}
+    {0}{3}
+    {0}break;
+{0}}}",
+                        "    ".repeat(indent),
+                        enum_name,
+                        variant_name,
+                        // transpile the body of the pattern branch
+                        self.transpile_c_tree(body, indent + 1)?,
+                        match_expr_str,
+                        variant_name.to_lowercase(),
+                        self.transpile_enum_data_params(inner_patterns, &enum_type, variant_name, indent)
+                    ))
+                },
                 
                 Pattern::IdentifierPattern(id) => patterns_strs.push(format!(
                     "{0}default: {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}break;\n{0}}}", 
@@ -290,6 +301,29 @@ impl Transpiler {
 
         // join the pattern branches together
         Ok(patterns_strs.join("\n\n"))
+    }
+
+
+    fn transpile_enum_data_params(&mut self, inner_patterns: &Vec<Pattern>, enum_type: &Type, variant_name: &str, indent: usize) -> String {
+        let enum_variants = match &enum_type.basic_type {
+            SimpleType::Enum(_, variants, _) => variants.get(variant_name).unwrap(),
+            other => panic!("Expected enum, got {:?}", other)
+        };
+
+        assert_eq!(enum_variants.len(), inner_patterns.len());
+
+        let mut params_str: String = String::new();
+        for i in 0..enum_variants.len() {
+            let pattern_param_name = match inner_patterns.get(i).unwrap() {
+                Pattern::IdentifierPattern(id) => id,
+                _ => panic!()
+            };
+
+            let enum_param_name = enum_variants.get_index(i).unwrap().0;
+            params_str += &format!("{0}auto {1} = iu.{2};\n\t", "\t".repeat(indent), pattern_param_name, enum_param_name);
+        }
+
+        params_str
     }
 
 
@@ -309,7 +343,7 @@ impl Transpiler {
                         let end = fold_constexpr_index(&r);
                         Ok(format!("array_range<{}, {}>({}, {})", get_array_inner_type(&target).as_ctype_str(), usize::abs_diff(start, end), start, end))
                     }
-                    _ => Ok(format!("{} {} {}", self.transpile_typed_expr_c(l, target)?, op, self.transpile_typed_expr_c(l, target)?)) 
+                    _ => Ok(format!("{} {} {}", self.transpile_typed_expr_c(l, target)?, op, self.transpile_typed_expr_c(r, target)?)) 
                 }
             }
             SyntaxNode::RightAssocUnaryOperation(op, r) => 
@@ -372,8 +406,8 @@ impl Transpiler {
             SyntaxNode::EnumInstantiation(enum_type, variant, args) => match &enum_type.basic_type {
                 SimpleType::Enum(name, variants, _) => {
                     let variant_data: &IndexMap<String, Type> = variants.get(variant).unwrap();
-                    let args_str = args.values()
-                                       .map(|v| self.transpile_typed_expr_c(&v, &Type::from_basic(SimpleType::I32)).unwrap())
+                    let args_str = args.iter()
+                                       .map(|(_, v)| self.transpile_typed_expr_c(&v, &Type::from_basic(SimpleType::I32)).unwrap())
                                        .collect::<Vec<String>>().join(", ");
                     
                     if variant_data.len() == 0 {

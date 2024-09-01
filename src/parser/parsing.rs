@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::error::Error;
 use std::rc::Rc;
 
@@ -73,7 +73,7 @@ pub enum SyntaxNode {
     // name, parameters (param name, param type)
     EnumVariant(String, IndexMap<String, Type>),
     // Enum type, variant name, variant arguments
-    EnumInstantiation(Type, String, HashMap<String, SyntaxTree>),
+    EnumInstantiation(Type, String, IndexMap<String, SyntaxTree>),
     // function name, arguments (id, type), return type, body statements
     Function(String, Vec<(String, Type)>, Type, Box<SyntaxTree>),
     // expression to return
@@ -230,7 +230,7 @@ impl Parser {
             let open_body = self.tokens.pop_front().unwrap();
             assert_token_type!(open_body, OpenCurly);
             
-            let body = self.parse_stmt_block()?;
+            let body = self.parse_stmt_block(vec![])?;
             
             let close_body = self.tokens.pop_front().unwrap();
             assert_token_type!(close_body, CloseCurly);
@@ -303,8 +303,12 @@ impl Parser {
     ///  - variable declarations and reassignments
     ///  - expressions
     ///  - if-else statements
-    fn parse_stmt_block(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_stmt_block(&mut self, new_symbols: Vec<Symbol>) -> Result<SyntaxTree, Box<dyn Error>> {
         self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
+        for symbol in new_symbols {
+            self.current_symbol_table.borrow_mut().insert(symbol);
+        }
+
         let mut statements: Vec<SyntaxTree> = vec![];
         loop {
             let statement = self.parse_statement()?;
@@ -350,7 +354,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenCurly);
 
-        let patterns = self.parse_match_patterns()?;
+        let patterns = self.parse_match_patterns(&match_expr_type)?;
 
         Ok(SyntaxTree::new(SyntaxNode::MatchStmt(
             Box::new(match_expr), 
@@ -361,9 +365,11 @@ impl Parser {
     }
 
 
-    fn parse_match_patterns(&mut self) -> Result<Vec<(Vec<Pattern>, SyntaxTree)>, Box<dyn Error>> {
+    fn parse_match_patterns(&mut self, match_expr_type: &Type) -> Result<Vec<(Vec<Pattern>, SyntaxTree)>, Box<dyn Error>> {
         let mut patterns: Vec<(Vec<Pattern>, SyntaxTree)> = vec![];
         loop {
+            let next_token = self.tokens.front().unwrap();
+            let (line_num, col_num) = (next_token.line_number, next_token.col_number);
             let pattern = self.parse_match_pattern()?;
 
             let next_token = self.tokens.pop_front().unwrap();
@@ -371,7 +377,16 @@ impl Parser {
             let next_token = self.tokens.pop_front().unwrap();
             assert_token_type!(next_token, OpenCurly);
 
-            let statement_block: SyntaxTree = self.parse_stmt_block()?;
+            let new_symbols: Vec<Symbol> = match &pattern {
+                Pattern::EnumPattern(enum_name, variant_name, _) => {
+                    let enum_type: Type = self.current_symbol_table.borrow().get(enum_name).unwrap().get_type();
+                    self.get_data_params_from_enum_pattern(&pattern, &enum_type, variant_name, line_num, col_num)
+                }
+                Pattern::IdentifierPattern(id) => 
+                    vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), line_num, col_num)]
+            };
+
+            let statement_block: SyntaxTree = self.parse_stmt_block(new_symbols)?;
 
             let next_token = self.tokens.pop_front().unwrap();
             assert_token_type!(next_token, CloseCurly);
@@ -387,6 +402,45 @@ impl Parser {
         }
 
         Ok(patterns)
+    }
+
+
+    fn get_data_params_from_enum_pattern(
+        &self, 
+        pattern: &Pattern, 
+        enum_type: &Type, 
+        variant_name: &str, 
+        line_num: usize, 
+        col_num: usize
+    ) -> Vec<Symbol> {
+        let mut result: Vec<Symbol> = vec![];
+        let variant_data_params = match &enum_type.basic_type {
+            SimpleType::Enum(_, variants, _) => variants.get(variant_name).unwrap(),
+            _ => panic!()
+        };
+
+        match pattern {
+            // param patterns is the name assigned to the variable in the enum pattern, not the
+            // enum declaration
+            Pattern::EnumPattern(_, _, param_patterns) => {
+                for i in 0..param_patterns.len() {
+                    let param_name = match param_patterns.get(i).unwrap() {
+                        Pattern::IdentifierPattern(id) => id,
+                        _ => panic!()
+                    };
+
+                    let param_type = variant_data_params.get_index(i).unwrap().1;
+                    result.push(Symbol::new(
+                        SymbolType::Variable(param_name.to_string(), param_type.clone()), 
+                        line_num, col_num)
+                    );
+                }
+            }
+
+            _ => panic!()
+        }
+
+        result
     }
 
 
@@ -473,11 +527,11 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenCurly);
 
-        self.current_symbol_table.borrow_mut().insert(
-            Symbol::new(SymbolType::Variable(iterator_id.clone(), iterator_type.clone()), 
-            iterator_line, iterator_col)
+        let iterator_symbol = Symbol::new(
+            SymbolType::Variable(iterator_id.clone(), iterator_type.clone()), 
+            iterator_line, iterator_col
         );
-        let body = self.parse_stmt_block()?;
+        let body = self.parse_stmt_block(vec![iterator_symbol])?;
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, CloseCurly);
@@ -685,7 +739,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenCurly);
 
-        let body = self.parse_stmt_block()?;
+        let body = self.parse_stmt_block(vec![])?;
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, CloseCurly);
@@ -855,7 +909,7 @@ impl Parser {
             _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
         };
 
-        let variant_params: HashMap<String, SyntaxTree> = self.parse_enum_variant_params()?;
+        let variant_params: IndexMap<String, SyntaxTree> = self.parse_enum_variant_params()?;
         let name_category = self.current_symbol_table.borrow().get(&name).unwrap().category;
         let enum_type = match name_category {
             SymbolType::EnumeraionType(_, t) => t,
@@ -873,8 +927,8 @@ impl Parser {
     }
 
 
-    fn parse_enum_variant_params(&mut self) -> Result<HashMap<String, SyntaxTree>, Box<dyn Error>> {
-        let mut variant_params: HashMap<String, SyntaxTree> = HashMap::new();
+    fn parse_enum_variant_params(&mut self) -> Result<IndexMap<String, SyntaxTree>, Box<dyn Error>> {
+        let mut variant_params: IndexMap<String, SyntaxTree> = IndexMap::new();
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::OpenParen => {
@@ -907,7 +961,7 @@ impl Parser {
             },
             _ => { // if there is no list of arguments, return an empty map
                 self.tokens.push_front(next_token);
-                Ok(HashMap::new())
+                Ok(IndexMap::new())
             } 
         }
     }
@@ -1148,7 +1202,7 @@ impl Parser {
         let (line, col) = (next_token.line_number, next_token.col_number);
         assert_token_type!(next_token, OpenCurly);
 
-        let body = self.parse_stmt_block()?;
+        let body = self.parse_stmt_block(vec![])?;
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, CloseCurly);
@@ -1200,7 +1254,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         let if_body = match next_token.token_type {
             TokenType::OpenCurly => {
-                let result = self.parse_stmt_block()?;
+                let result = self.parse_stmt_block(vec![])?;
                 let next_token = self.tokens.pop_front().unwrap();
                 assert_token_type!(next_token, CloseCurly);
                 result
@@ -1218,7 +1272,7 @@ impl Parser {
                 let next_token = self.tokens.pop_front().unwrap();
                 Some(match next_token.token_type {
                     TokenType::OpenCurly => {
-                        let result = self.parse_stmt_block()?;
+                        let result = self.parse_stmt_block(vec![])?;
                         let next_token = self.tokens.pop_front().unwrap();
                         assert_token_type!(next_token, CloseCurly);
                         result
