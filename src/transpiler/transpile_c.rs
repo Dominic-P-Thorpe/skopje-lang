@@ -244,16 +244,7 @@ impl Transpiler {
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
             }
 
-            SyntaxNode::MatchStmt(match_expr, patterns, match_type) => {
-                assert!(patterns.len() > 0);
-                // TODO: adapt this to take non-enum expression types
-                Ok(format!(
-                    "{0}switch ({1}.getTag()) {{\n{2}\n{0}}}", 
-                    "    ".repeat(indent),
-                    self.transpile_typed_expr_c(match_expr, match_type)?,
-                    self.transpile_patterns(patterns, indent + 1)?
-                ))
-            }
+            SyntaxNode::MatchStmt(_, _, _) => self.transpile_match_stmt(tree, indent),
 
             SyntaxNode::Enumeraion(name, variants) => self.transpile_enum(name, variants, indent),
             other => panic!("{:?} is not a valid node!", other)
@@ -261,19 +252,39 @@ impl Transpiler {
     }
 
 
-    fn transpile_patterns(&mut self, patterns: &Vec<(Vec<Pattern>, Vec<SyntaxTree>)>, indent: usize) -> Result<String, Box<dyn Error>> {
+    fn transpile_match_stmt(&mut self, tree: &SyntaxTree, indent: usize) -> Result<String, Box<dyn Error>> {
+        // TODO: adapt this to take non-enum expression types
+        if let SyntaxNode::MatchStmt(match_expr, patterns, match_type) = &tree.node {
+            assert!(patterns.len() > 0);
+            let match_expr_str = self.transpile_typed_expr_c(&*match_expr, &match_type)?;
+            return Ok(format!(
+                "{0}switch ({1}.getTag()) {{\n{2}\n{0}}}", 
+                "    ".repeat(indent),
+                match_expr_str,
+                self.transpile_patterns(&patterns, &match_expr_str, indent + 1)?
+            ));
+        }
+        
+        panic!("Expected match statement, got {:?}", tree)
+    }
+
+
+    fn transpile_patterns(&mut self, patterns: &Vec<(Vec<Pattern>, Vec<SyntaxTree>)>, match_expr_str: &str, indent: usize) -> Result<String, Box<dyn Error>> {
         let mut patterns_strs: Vec<String> = vec![];
         for (pattern, body) in patterns {
             // get the first pattern in the list of patterns to match against
             let pattern = pattern.get(0).unwrap();
             match pattern {
                 Pattern::EnumPattern(enum_name, variant_name, _) => patterns_strs.push(format!(
-                    "{0}case {1}::{2}:\n{3}\n\t{0}break;",
+                    "{0}case {1}::{2}: {{\n{0}\t{1}::InternalUnion::{4} iu = {5}.getValue().{6};\n{3}\n\t{0}break;\n{0}}}",
                     "    ".repeat(indent),
                     enum_name,
                     variant_name,
                     // transpile the body of the pattern branch
-                    body.iter().map(|stmt| self.transpile_c_tree(stmt, indent + 1).unwrap()).collect::<Vec<String>>().join("\n")
+                    body.iter().map(|stmt| self.transpile_c_tree(stmt, indent + 1).unwrap()).collect::<Vec<String>>().join("\n"),
+                    capitalize(variant_name),
+                    match_expr_str,
+                    variant_name.to_lowercase()
                 ))
             }
         }
@@ -395,9 +406,7 @@ public:
     template <typename... Args>
     {0}(int variant, Args... args) {{
         this->tag = static_cast<Tag>(variant);
-        switch(this->tag) {{
-            {3}
-        }};
+        switch(this->tag) {{{3}\t\t}};
     }}
 
     template <typename... T>
