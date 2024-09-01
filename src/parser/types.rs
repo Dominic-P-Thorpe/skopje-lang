@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use std::error::Error;
 
-use crate::Context;
+use crate::semantics::symbol_table::SymbolTable;
 
 use super::errors::ParsingError;
 
@@ -28,7 +28,7 @@ pub enum SimpleType {
 
 
 impl SimpleType {
-    pub fn from_string(src: &str, context: &Context) -> Result<Self, Box<dyn Error>> {
+    pub fn from_string(src: &str, symbol_table: &SymbolTable) -> Result<Self, Box<dyn Error>> {
         Ok(match src {
             "i32" => Self::I32,
             "i64" => Self::I64,
@@ -39,8 +39,8 @@ impl SimpleType {
             "bool" => Self::Bool,
             "IO" => Self::IOMonad,
             name => {
-                match context.valid_type_identifiers.get(name) {
-                    Some(t) => t.basic_type.clone(),
+                match symbol_table.get(&name.to_owned()) {
+                    Some(t) => t.get_type().basic_type,
                     None => return Err(Box::new(ParsingError::InvalidTypeName(name.to_owned()))) 
                 }
             }
@@ -166,7 +166,7 @@ pub struct Type {
 
 
 impl Type {
-    pub fn new_str(basic_type: String, linear: bool, generics: Vec<Type>, context: &Context) -> Result<Self, Box<dyn Error>> {
+    pub fn new_str(basic_type: String, linear: bool, generics: Vec<Type>, context: &SymbolTable) -> Result<Self, Box<dyn Error>> {
         let basic_type = SimpleType::from_string(&basic_type, context)?;
         let monadic: bool = match basic_type {
             SimpleType::IOMonad => true,

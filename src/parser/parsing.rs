@@ -1,8 +1,11 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
+use std::rc::Rc;
 
 use indexmap::IndexMap;
 
+use crate::semantics::symbol_table::{Symbol, SymbolTable, SymbolType};
 use crate::semantics::typechecking::*;
 
 use super::types::SimpleType;
@@ -134,92 +137,14 @@ impl SyntaxTree {
 }
 
 
-/// Represents the current semantic context of the compiler, necessary for debugging and semantic
-/// checking.
-/// 
-/// Contains information about the identifiers which are valid for use in the current context, such
-/// as their type.
-pub struct Context {
-    /// The valid identifiers in this context and their types
-    pub valid_identifiers: HashMap<String, (Type, usize)>,
-    pub valid_type_identifiers: HashMap<String, Type>,
-    context_window_id: usize
-}
-
-
-impl Context {
-    pub fn new() -> Self {
-        let mut valid_identifiers: HashMap<String, (Type, usize)> = HashMap::new();
-        valid_identifiers.insert("print".to_owned(), (Type::new(SimpleType::Function (
-            Box::new(Type::from_basic(SimpleType::IOMonad)), vec![
-                Type::from_basic(SimpleType::Str)
-            ]), 
-            false, vec![]), 0)
-        );
-        valid_identifiers.insert("readln".to_owned(), (Type::new(SimpleType::Function (
-            Box::new(Type::from_basic(SimpleType::IOMonad)), vec![
-                Type::from_basic(SimpleType::Str)
-            ]), 
-            false, vec![]), 0)
-        );
-
-        Context {
-            valid_identifiers,
-            valid_type_identifiers: HashMap::new(),
-            context_window_id: 1
-        }
-    }
-
-
-    pub fn add_var(&mut self, id: &str, t: Type) {
-        self.valid_identifiers.insert(id.to_owned(), (t, self.context_window_id));
-    }
-
-
-    pub fn add_type(&mut self, id: &str, t: Type) {
-        self.valid_type_identifiers.insert(id.to_owned(), t);
-    }
-
-
-    pub fn start_new_context_window(&mut self) -> usize {
-        self.context_window_id += 1;
-        self.context_window_id
-    }
-
-
-    pub fn end_context_window(&mut self, context_window: &usize) {
-        self.valid_identifiers = self.valid_identifiers
-                                     .iter()
-                                     .filter(|(_, (_, window_id))| window_id != context_window)
-                                     .map(|(k, (t, w))| (k.clone(), (t.clone(), *w)))
-                                     .collect();
-    }
-
-
-    /// Checks if the passed identifier is a valid function in the given context and returns the
-    /// type of the function if it is, and `None` if it isn't.
-    pub fn verify_function(&self, func_name: &String) -> Option<Type> {
-        match self.valid_identifiers.get(func_name) {
-            Some((func_type, _)) => {
-                match func_type.basic_type {
-                    SimpleType::Function(_, _) => Some(func_type.clone()),
-                    _ => None
-                }
-            }
-
-            None => None
-        }
-    }
-}
-
-
 /// Contains a [`VecDeque`] of tokens which can be used as a FIFO queue data structure. 
 /// 
 /// This data structure is modified by the parser as tokens are sequentially popped off of the front
 /// of the queue and organized into the AST.
 pub struct Parser {
     tokens: VecDeque<Token>,
-    context: Context
+    symbol_table_root: Rc<RefCell<SymbolTable>>,
+    current_symbol_table: Rc<RefCell<SymbolTable>>
 }
 
 
@@ -227,10 +152,24 @@ impl Parser {
     /// Creates a [`VecDeque`] of tokens which can be used as a FIFO queue data structure in the
     /// [`Parser`] struct.  
     pub fn new(tokens: Vec<Token>) -> Self {
-        Parser { 
+        let symbol_table_root = SymbolTable::new(None);
+        let parser = Parser { 
             tokens: VecDeque::from(tokens),
-            context: Context::new()
-        }
+            symbol_table_root: symbol_table_root.clone(),
+            current_symbol_table: symbol_table_root
+        };
+
+        let print_type = Type::from_basic(
+            SimpleType::Function(
+                Box::new(Type::from_basic(SimpleType::Void)), 
+                vec![Type::from_basic(SimpleType::Str)]
+            )
+        );
+
+        parser.symbol_table_root.borrow_mut().insert(
+            Symbol::new(SymbolType::Function("print".to_owned(), print_type), 0, 0)
+        );
+        parser
     }
 
 
@@ -272,8 +211,6 @@ impl Parser {
     /// }
     /// ```
     fn parse_function(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
-        let context_window_id: usize = self.context.start_new_context_window();
-
         let id_token = self.tokens.pop_front().unwrap();
         if let TokenType::Identifier(id) = id_token.token_type {
             let open_paren = self.tokens.pop_front().unwrap();
@@ -298,9 +235,7 @@ impl Parser {
             let func_type = Type::new(SimpleType::Function(
                 Box::new(return_type.clone()), params.iter().map(|(_, t)| t).cloned().collect::<Vec<Type>>()
             ), false, vec![]);
-            self.context.add_var(&id, func_type);
-
-            self.context.end_context_window(&context_window_id);
+            self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Function(id.clone(), func_type), line_num, col_num));
             return Ok(SyntaxTree::new(
                 SyntaxNode::Function(id, params, return_type, body), line_num, col_num
             ));
@@ -324,14 +259,12 @@ impl Parser {
         // get all the params into the vec (which are comma separated) until the last ")" token 
         // is reached
         loop {
-            let p_id: String;
-
             let next_token = self.tokens.pop_front().unwrap();
-            if let TokenType::Identifier(id) = next_token.token_type {
-                p_id = id;
+            let (p_id, p_line, p_col) = if let TokenType::Identifier(id) = next_token.token_type {
+                (id, next_token.line_number, next_token.col_number)
             } else {
                 return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)));
-            }
+            };
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
@@ -343,7 +276,7 @@ impl Parser {
             let p_type: Type = self.parse_type().unwrap();
 
             params.push((p_id.clone(), p_type.clone()));
-            self.context.add_var(&p_id, p_type);
+            self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(p_id, p_type), p_line, p_col));
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
@@ -367,7 +300,7 @@ impl Parser {
     ///  - expressions
     ///  - if-else statements
     fn parse_stmt_block(&mut self) -> Result<Vec<SyntaxTree>, Box<dyn Error>> {
-        let context_window_id: usize = self.context.start_new_context_window();
+        self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
         let mut statements: Vec<SyntaxTree> = vec![];
         loop {
             let statement = self.parse_statement()?;
@@ -378,7 +311,10 @@ impl Parser {
             }
         }
 
-        self.context.end_context_window(&context_window_id);
+        let parent_symbol_table = self.current_symbol_table.borrow()
+                                                                                     .parent.as_ref().unwrap()
+                                                                                     .upgrade().unwrap();
+        self.current_symbol_table = parent_symbol_table;
         Ok(statements)
     }
 
@@ -400,7 +336,7 @@ impl Parser {
 
     fn parse_match_stmt(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let match_expr = self.parse_expression()?;
-        let match_expr_type = get_expr_type(&match_expr, &self.context)?;
+        let match_expr_type = get_expr_type(&match_expr, &self.current_symbol_table.borrow())?;
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenCurly);
@@ -475,6 +411,7 @@ impl Parser {
         assert_token_type!(next_token, OpenParen);
 
         let next_token = self.tokens.pop_front().unwrap();
+        let (iterator_line, iterator_col) = (next_token.line_number, next_token.col_number);
         let iterator_id: String = match next_token.token_type {
             TokenType::Identifier(id) => id,
             _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
@@ -489,7 +426,7 @@ impl Parser {
         assert_token_type!(next_token, InKeyword);
 
         let iterator_expr = self.parse_expression()?;
-        let iterator_expr_type = get_expr_type(&iterator_expr, &self.context).unwrap();
+        let iterator_expr_type = get_expr_type(&iterator_expr, &self.current_symbol_table.borrow()).unwrap();
         if !iterator_type.is_compatible_with(&get_array_inner_type(&iterator_expr_type)) {
             panic!("Iterator variable type must be compatible with the type of the elements of the iterator expression!");
         }
@@ -499,7 +436,10 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenCurly);
 
-        self.context.add_var(&iterator_id, iterator_type.clone());
+        self.current_symbol_table.borrow_mut().insert(
+            Symbol::new(SymbolType::Variable(iterator_id.clone(), iterator_type.clone()), 
+            iterator_line, iterator_col)
+        );
         let body = self.parse_stmt_block()?;
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -521,7 +461,7 @@ impl Parser {
 
 
     fn parse_reassignment(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
-        match self.context.valid_identifiers.get(&id) {
+        match self.current_symbol_table.borrow().get(&id) {
             Some(_) => (),
             None => panic!("Semantic error: The identifier {} could not be found!", id)
         }
@@ -548,8 +488,8 @@ impl Parser {
         };
 
         let expr = self.parse_expression()?;
-        let expr_type: Type = get_expr_type(&expr, &self.context).unwrap();
-        let lhs_type: Type = get_l_expr_type(&lhs, &self.context).unwrap();
+        let expr_type: Type = get_expr_type(&expr, &self.current_symbol_table.borrow()).unwrap();
+        let lhs_type: Type = get_l_expr_type(&lhs, &self.current_symbol_table.borrow()).unwrap();
         if !expr_type.is_compatible_with(&lhs_type) {
             panic!("Mismatch between variable and expression types!");
         }
@@ -580,7 +520,7 @@ impl Parser {
         assert_token_type!(next_token, Equal);
 
         let expression: SyntaxTree = self.parse_expression()?;
-        let expr_type: Type = get_expr_type(&expression, &self.context).unwrap();
+        let expr_type: Type = get_expr_type(&expression, &self.current_symbol_table.borrow()).unwrap();
 
         // if the type is an raw enum name and not an enum instantiation, it is not valid as it is
         // not a type
@@ -596,7 +536,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, Semicolon);
 
-        self.context.add_var(&id, var_type.clone());
+        self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(id.clone(), var_type.clone()), line_num, col_num));
         Ok(SyntaxTree::new(SyntaxNode::LetStmt(id, var_type, Box::new(expression)), line_num, col_num))
     }
 
@@ -642,7 +582,7 @@ impl Parser {
             _ => vec![] // no generic
         };
 
-        let mut final_type: Type = Type::new_str(basic_type, false, generics, &self.context)?;
+        let mut final_type: Type = Type::new_str(basic_type, false, generics, &self.current_symbol_table.borrow())?;
 
         loop {
             let next_token = self.tokens.get(0).unwrap();
@@ -699,7 +639,7 @@ impl Parser {
         assert_token_type!(next_token, OpenParen);
 
         let expr = self.parse_expression()?;
-        if get_expr_type(&expr, &self.context).unwrap() != Type::new(SimpleType::Bool, false, vec![]) {
+        if get_expr_type(&expr, &self.current_symbol_table.borrow()).unwrap() != Type::new(SimpleType::Bool, false, vec![]) {
             panic!("If statement's condition must be of type bool!");
         }
 
@@ -719,9 +659,9 @@ impl Parser {
 
     fn parse_func_call_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         // check that the function exists in this context
-        match self.context.verify_function(&id) {
-            Some(_) => (),
-            None => panic!("Identifier {} is not valid in this context", id)
+        match self.current_symbol_table.borrow().get(&id).unwrap().category {
+            SymbolType::Function(_, _) => (),
+            _ => panic!("Identifier {} is not a valid function name in this context", id)
         }
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -733,7 +673,7 @@ impl Parser {
         assert_token_type!(next_token, Semicolon);
         
         let expr = SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments), line_num, col_num);
-        get_expr_type(&expr, &self.context).unwrap();
+        get_expr_type(&expr, &self.current_symbol_table.borrow()).unwrap();
         return Ok(expr);
     }
 
@@ -821,22 +761,21 @@ impl Parser {
         // enum instantiation and not a raw type name
         let root_type = match root.node.clone() {
             SyntaxNode::Identifier(id) => {
-                let rt = get_expr_type(&root, &self.context).unwrap();
+                let rt = get_expr_type(&root, &self.current_symbol_table.borrow()).unwrap();
                 match rt.basic_type {
                     SimpleType::Enum(name, _, None) => {
-                        // is an enum name and must be am instantiation
-                        if self.context.valid_type_identifiers.contains_key(&id) {
-                            return self.parse_enum_instantiation(root, name);
-                        } 
-
-                        // is not an enum name
-                        get_expr_type(&root, &self.context)?
+                        match self.current_symbol_table.clone().borrow().get(&id).unwrap().category {
+                            // is an enum name and must be am instantiation
+                            SymbolType::EnumeraionType(_, _) => return self.parse_enum_instantiation(root, name),
+                            // is not an enum name
+                            _ => get_expr_type(&root, &self.current_symbol_table.borrow())?
+                        }
                     },
                     _ => rt
                 }
             }
 
-            _ => get_expr_type(&root, &self.context)?
+            _ => get_expr_type(&root, &self.current_symbol_table.borrow())?
         };
         
         match root_type.basic_type.clone() {
@@ -880,7 +819,12 @@ impl Parser {
         };
 
         let variant_params: HashMap<String, SyntaxTree> = self.parse_enum_variant_params()?;
-        let enum_type = self.context.valid_type_identifiers.get(&name).unwrap();
+        let name_category = self.current_symbol_table.borrow().get(&name).unwrap().category;
+        let enum_type = match name_category {
+            SymbolType::EnumeraionType(_, t) => t,
+            _ => panic!()
+        };
+
         Ok(SyntaxTree::new(
             SyntaxNode::EnumInstantiation(
                 enum_type.clone(), 
@@ -1008,7 +952,7 @@ impl Parser {
                 }
 
                 TokenType::OpenSquare => {
-                    let root_type: Type = get_expr_type(&root, &self.context).unwrap();
+                    let root_type: Type = get_expr_type(&root, &self.current_symbol_table.borrow()).unwrap();
                     let expr = self.parse_expression()?;
 
                     // check if the expression is an array range, which means it is actually a
@@ -1081,7 +1025,7 @@ impl Parser {
 
             TokenType::Identifier(id) => {
                 // check that the identifier is valid in this context
-                match self.context.valid_identifiers.get(&id) {
+                match self.current_symbol_table.borrow().get(&id) {
                     Some(_) => (),
                     None => panic!("Semantic error: The identifier {} could not be found on line {}, col {}!", id, next_token.line_number, next_token.col_number)
                 }
@@ -1119,7 +1063,7 @@ impl Parser {
             } 
         }
 
-        let inner_type = get_expr_type(elems.get(0).unwrap(), &self.context)?;
+        let inner_type = get_expr_type(elems.get(0).unwrap(), &self.current_symbol_table.borrow())?;
         Ok(SyntaxTree::new(SyntaxNode::ArrayLiteral(elems, inner_type), line_num, col_num))
     } 
 
@@ -1209,7 +1153,7 @@ impl Parser {
         assert_token_type!(next_token, OpenParen);
 
         let cond = self.parse_expression()?;
-        if get_expr_type(&cond, &self.context).unwrap() != Type::new(SimpleType::Bool, false, vec![]) {
+        if get_expr_type(&cond, &self.current_symbol_table.borrow()).unwrap() != Type::new(SimpleType::Bool, false, vec![]) {
             panic!("If statement's condition must be of type bool!");
         }
 
@@ -1287,8 +1231,10 @@ impl Parser {
         let variant_data = self.get_enum_variants_data(&variants);
 
         let t: Type = Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data, None));
-        self.context.add_type(&identifier, t.clone());
-        self.context.add_var(&identifier, t);
+        self.current_symbol_table.borrow_mut().insert(
+            Symbol::new(SymbolType::EnumeraionType(identifier.clone(), t.clone()), 
+            start_line, start_index)
+        );
         Ok(SyntaxTree::new(SyntaxNode::Enumeraion(identifier, variants), start_line, start_index))
     }
 
