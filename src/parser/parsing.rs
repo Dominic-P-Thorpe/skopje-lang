@@ -4,6 +4,7 @@ use std::error::Error;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
+use rand::distributions::{Alphanumeric, DistString};
 
 use crate::semantics::symbol_table::{Symbol, SymbolTable, SymbolType};
 use crate::semantics::typechecking::*;
@@ -61,7 +62,11 @@ macro_rules! assert_token_type {
 pub enum Pattern {
     // enum name, pattern name, pattern data params
     EnumPattern(String, String, Vec<Pattern>),
-    IdentifierPattern(String)
+    IdentifierPattern(String),
+    // placeholder name for the pattern variable, value of the literal
+    IntLiteralPattern(String, i64),
+    BoolLiteralPattern(String, bool),
+    StrLiteralPattern(String, String)
 }
 
 
@@ -147,7 +152,8 @@ impl SyntaxTree {
 pub struct Parser {
     tokens: VecDeque<Token>,
     symbol_table_root: Rc<RefCell<SymbolTable>>,
-    current_symbol_table: Rc<RefCell<SymbolTable>>
+    current_symbol_table: Rc<RefCell<SymbolTable>>,
+    auxilliary_var_index: usize
 }
 
 
@@ -159,7 +165,8 @@ impl Parser {
         let parser = Parser { 
             tokens: VecDeque::from(tokens),
             symbol_table_root: symbol_table_root.clone(),
-            current_symbol_table: symbol_table_root
+            current_symbol_table: symbol_table_root,
+            auxilliary_var_index: 0
         };
 
         let print_type = Type::from_basic(
@@ -189,6 +196,35 @@ impl Parser {
         let program_block = SyntaxTree::new(SyntaxNode::StmtBlock(top_level_constructs, self.symbol_table_root.clone()), 0, 0);
         Ok(SyntaxTree::new(SyntaxNode::Program(Box::new(program_block)), 0, 0))
     }
+
+
+    /// Generates a unique, random variable name.
+    ///
+    /// This function creates a unique variable name by combining a sequential index with a randomly 
+    /// generated alphanumeric string. The generated name is intended to be used as an auxiliary or 
+    /// temporary variable in code generation or similar contexts where unique identifiers are 
+    /// required.
+    ///
+    /// # Returns
+    ///
+    /// A `String` representing the unique variable name. The format of the name is:
+    /// `"__F_{:#08X}__<random_string>"`, where:
+    ///     - `{:#08X}` is the zero-padded, hexadecimal representation of an internal counter 
+    /// (`auxiliary_var_index`).
+    ///     - `<random_string>` is a 16-character long randomly generated alphanumeric string.
+    ///
+    /// # Notes
+    ///
+    /// - The internal counter (`auxiliary_var_index`) is incremented each time the function is 
+    /// called, ensuring that the generated names are sequentially unique.
+    fn generate_random_variable(&mut self) -> String {
+        let id_num: usize = self.auxilliary_var_index;
+        self.auxilliary_var_index += 1;
+
+        let mut rng = rand::thread_rng();
+        let salt = Alphanumeric.sample_string(&mut rng, 16);
+        format!("__V_{:#08X}__{}", id_num, salt)
+    } 
 
 
     /// Parses a function which may have arguments and a return type.
@@ -390,8 +426,11 @@ impl Parser {
                     assert_eq!(data_params.len(), expected_params.len());
                     data_params
                 }
+
                 Pattern::IdentifierPattern(id) => 
-                    vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), line_num, col_num)]
+                    vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), line_num, col_num)],
+                
+                other => unimplemented!("{:?} has not yet been implemented!", other)
             };
 
             let statement_block: SyntaxTree = self.parse_stmt_block(new_symbols)?;
@@ -414,7 +453,7 @@ impl Parser {
 
 
     fn get_data_params_from_enum_pattern(
-        &self, 
+        &mut self, 
         pattern: &Pattern, 
         enum_type: &Type, 
         variant_name: &str, 
@@ -433,7 +472,10 @@ impl Parser {
             Pattern::EnumPattern(_, _, param_patterns) => {
                 for i in 0..param_patterns.len() {
                     let param_name = match param_patterns.get(i).unwrap() {
-                        Pattern::IdentifierPattern(id) => id,
+                        Pattern::IdentifierPattern(id)
+                        | Pattern::BoolLiteralPattern(id, _)
+                        | Pattern::IntLiteralPattern(id, _)
+                        | Pattern::StrLiteralPattern(id, _) => id,
                         _ => panic!()
                     };
 
@@ -455,30 +497,35 @@ impl Parser {
     fn parse_match_pattern(&mut self) -> Result<Pattern, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
-            TokenType::Identifier(enum_name) => {
-                let next_token = self.tokens.front().unwrap();
-                
-                // check if this is an identifier pattern or an identifier pattern
-                match next_token.token_type {
-                    TokenType::DoubleColon => self.tokens.pop_front(),
-                    _ => return Ok(Pattern::IdentifierPattern(enum_name))
-                };
-
-                let next_token = self.tokens.pop_front().unwrap();
-                let variant_name = if let TokenType::Identifier(name) = next_token.token_type {
-                    name
-                } else {
-                    panic!()
-                };
-
-                match self.tokens.front().unwrap().token_type {
-                    TokenType::ThickArrow => Ok(Pattern::EnumPattern(enum_name, variant_name, vec![])),
-                    TokenType::OpenParen => Ok(Pattern::EnumPattern(enum_name, variant_name, self.parse_enum_pattern_data_params()?)),
-                    _ => Err(Box::new(ParsingError::UnexpectedToken(self.tokens.front().unwrap().clone(), ExpectedToken::ThickArrow)))
-                }
-            }
-
+            TokenType::Identifier(enum_name) => self.parse_identifier_or_enum_pattern(enum_name),
+            TokenType::IntLiteral(literal) => Ok(Pattern::IntLiteralPattern(self.generate_random_variable(), literal as i64)),
+            TokenType::BoolLiteral(literal) => Ok(Pattern::BoolLiteralPattern(self.generate_random_variable(), literal)),
+            TokenType::StrLiteral(literal) => Ok(Pattern::StrLiteralPattern(self.generate_random_variable(), literal)),
             _ => panic!()
+        }
+    }
+
+
+    fn parse_identifier_or_enum_pattern(&mut self, enum_name: String) -> Result<Pattern, Box<dyn Error>> {
+        let next_token = self.tokens.front().unwrap();
+        
+        // check if this is an identifier pattern or an identifier pattern
+        match next_token.token_type {
+            TokenType::DoubleColon => self.tokens.pop_front(),
+            _ => return Ok(Pattern::IdentifierPattern(enum_name))
+        };
+
+        let next_token = self.tokens.pop_front().unwrap();
+        let variant_name = if let TokenType::Identifier(name) = next_token.token_type {
+            name
+        } else {
+            panic!()
+        };
+
+        match self.tokens.front().unwrap().token_type {
+            TokenType::ThickArrow => Ok(Pattern::EnumPattern(enum_name, variant_name, vec![])),
+            TokenType::OpenParen => Ok(Pattern::EnumPattern(enum_name, variant_name, self.parse_enum_pattern_data_params()?)),
+            _ => Err(Box::new(ParsingError::UnexpectedToken(self.tokens.front().unwrap().clone(), ExpectedToken::ThickArrow)))
         }
     }
 

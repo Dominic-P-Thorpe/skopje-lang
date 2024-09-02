@@ -246,12 +246,7 @@ impl Transpiler {
         if let SyntaxNode::MatchStmt(match_expr, patterns, match_type) = &tree.node {
             assert!(patterns.len() > 0);
             let match_expr_str = self.transpile_typed_expr_c(&*match_expr, &match_type)?;
-            return Ok(format!(
-                "{0}switch ({1}.getTag()) {{\n{2}\n{0}}}", 
-                "    ".repeat(indent),
-                match_expr_str,
-                self.transpile_patterns(&patterns, &match_expr_str, indent + 1)?
-            ));
+            return Ok(self.transpile_patterns(&patterns, &match_expr_str, indent + 1)?);
         }
         
         panic!("Expected match statement, got {:?}", tree)
@@ -264,46 +259,88 @@ impl Transpiler {
             // get the first pattern in the list of patterns to match against
             let pattern = pattern.get(0).unwrap();
             match pattern {
-                Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => {
-                    let enum_type: Type = match &body.node {
-                        SyntaxNode::StmtBlock(_, symbol_table) => 
-                            symbol_table.borrow().get(enum_name).unwrap().get_type(),
-                        _ => panic!()
-                    };
-
-                    patterns_strs.push(format!(
-                        "
-{0}case {1}::{2}: {{
-    {0}auto iu = {4}.getValue().{5};
-    {6}
-    {0}{3}
-    {0}break;
-{0}}}",
-                        "    ".repeat(indent),
-                        enum_name,
-                        variant_name,
-                        // transpile the body of the pattern branch
-                        self.transpile_c_tree(body, indent + 1)?,
-                        match_expr_str,
-                        variant_name.to_lowercase(),
-                        self.transpile_enum_data_params(inner_patterns, &enum_type, variant_name, indent)
-                    ))
-                },
-                
+                Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => 
+                    patterns_strs.push(self.transpile_enum_pattern(body, enum_name, &variant_name, inner_patterns, match_expr_str, indent)?),
                 Pattern::IdentifierPattern(id) => patterns_strs.push(format!(
-                    "{0}default: {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}break;\n{0}}}", 
+                    "{0}else {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}\n{0}}}", 
                     "    ".repeat(indent),
                     id, match_expr_str,
                     self.transpile_c_tree(body, indent + 1)?,
-                ))
+                )),
+
+                _ => unimplemented!()
             }
         }
 
         // join the pattern branches together
-        Ok(patterns_strs.join("\n\n"))
+        Ok(patterns_strs.join("\n"))
     }
 
 
+    fn transpile_enum_pattern(
+        &mut self, 
+        body: &SyntaxTree, 
+        enum_name: &String, 
+        variant_name: &str, 
+        inner_patterns: &Vec<Pattern>, 
+        match_expr_str: &str, 
+        indent: usize
+    ) -> Result<String, Box<dyn Error>> {
+        let mut patterns_strs: Vec<String> = vec![];
+        let enum_type: Type = match &body.node {
+            SyntaxNode::StmtBlock(_, symbol_table) => 
+                symbol_table.borrow().get(enum_name).unwrap().get_type(),
+            _ => panic!()
+        };
+
+        patterns_strs.push(format!(
+            "
+{0}if ({7}.getTag() == {1}::{2}) {{
+{0}    auto iu = {4}.getValue().{5};
+{6}      
+{0}    if ({8}) {{
+            {0}{3}
+{0}    }}
+{0} }}",
+            "    ".repeat(indent),
+            enum_name,
+            variant_name,
+            // transpile the body of the pattern branch
+            self.transpile_c_tree(body, indent + 2)?,
+            match_expr_str,
+            variant_name.to_lowercase(),
+            self.transpile_enum_data_params(inner_patterns, &enum_type, variant_name, indent + 1),
+            match_expr_str,
+            self.transpile_enum_sub_patterns(inner_patterns)
+        ));
+
+        Ok(patterns_strs.join("\n"))
+    }
+
+
+    fn transpile_enum_sub_patterns(&self, sub_patterns: &Vec<Pattern>) -> String {
+        let mut sub_pattern_strs: Vec<String> = vec![];
+        for sub_pattern in sub_patterns {
+            match sub_pattern {
+                Pattern::IntLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
+                Pattern::StrLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
+                Pattern::BoolLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
+                Pattern::IdentifierPattern(_) => (),
+                Pattern::EnumPattern(_, _, _) => unimplemented!(),
+            }
+        }
+
+        if sub_pattern_strs.len() == 0 {
+            return String::from("1");
+        }
+
+        sub_pattern_strs.join(" && ")
+    }
+
+
+    /// Converts the data parameters into variable assignments which go at the top of the enum
+    /// variant's case block and can then be used in the rest of the block to access the fields
+    /// of the parameter
     fn transpile_enum_data_params(&mut self, inner_patterns: &Vec<Pattern>, enum_type: &Type, variant_name: &str, indent: usize) -> String {
         let enum_variants = match &enum_type.basic_type {
             SimpleType::Enum(_, variants, _) => variants.get(variant_name).unwrap(),
@@ -315,12 +352,15 @@ impl Transpiler {
         let mut params_str: String = String::new();
         for i in 0..enum_variants.len() {
             let pattern_param_name = match inner_patterns.get(i).unwrap() {
-                Pattern::IdentifierPattern(id) => id,
+                Pattern::IdentifierPattern(id)
+                | Pattern::BoolLiteralPattern(id, _)
+                | Pattern::IntLiteralPattern(id, _)
+                | Pattern::StrLiteralPattern(id, _) => id,
                 _ => panic!()
             };
 
             let enum_param_name = enum_variants.get_index(i).unwrap().0;
-            params_str += &format!("{0}auto {1} = iu.{2};\n\t", "\t".repeat(indent), pattern_param_name, enum_param_name);
+            params_str += &format!("{0}auto {1} = iu.{2};\n", "\t".repeat(indent), pattern_param_name, enum_param_name);
         }
 
         params_str
@@ -614,9 +654,25 @@ mod test {
 
 
     #[test]
-    #[ignore]
     fn test_match_enum_with_specific_data_param() {
-        todo!()
+        let scanner = Scanner::from_str("
+            enum MyEnum = VariantA(a: i32, b: u32) | VariantB(a: i32) | VariantC;
+
+            fn main() -> i32 {
+                let my_enum: MyEnum = MyEnum::VariantA(a: 1, b: 2);
+                match my_enum {
+                    MyEnum::VariantA(x, 10) => { return x + 1; },
+                    MyEnum::VariantA(x, y) => {return x + y + 1; },
+                    MyEnum::VariantB(a) => { return a; },
+                    MyEnum::VariantC => { return 3; }
+                }
+
+                return 0;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
     }
 
 
