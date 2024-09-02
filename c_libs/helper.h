@@ -6,6 +6,7 @@
 #include <iostream>
 #include <functional>
 #include <type_traits>
+#include <span>
 #include <string>
 #include <tuple>
 #include <array>
@@ -152,12 +153,36 @@ std::array<T, N> make_array(U&&... values) {
 }
 
 
-template <typename T, typename... Args>
-constexpr T create_struct(Args... args) {
-    if constexpr (std::is_empty_v<T>)
-        return T {};
-    else
-        return T {args...};
+/// @brief Creates a struct of type T using the first I elements from the passed tuple.
+/// @tparam T The type of the struct to create.
+/// @tparam Tuple A tuple containing the arguments to create the struct from.
+/// @tparam Is A parameter pack of indices representing the elements in the tuple to use.
+/// @param tuple The tuple containing the arguments for struct construction.
+/// @param index_sequence A sequence of indices corresponding to the tuple elements to use.
+/// @return An instance of T created with the specified tuple elements.
+template <typename T, typename Tuple, std::size_t... Is>
+constexpr T create_struct_impl(Tuple&& tuple, std::index_sequence<Is...>) {
+    return T{std::get<Is>(std::forward<Tuple>(tuple))...};
+}
+
+
+/// @brief Creates an instance of T by passing the first N arguments from the variadic template 
+/// arguments.
+/// @tparam T The type of the struct to create.
+/// @tparam N The number of arguments to use for constructing T.
+/// @tparam Args The types of the variadic arguments passed to the function.
+/// @param args The arguments to use for constructing the struct of type T.
+/// @return An instance of T created using the first N arguments from args.
+template <typename T, std::size_t N, typename... Args>
+constexpr T create_struct(Args&&... args) {
+    if constexpr (std::is_empty_v<T>) {
+        return T{};
+    } else {
+        // Create a tuple of the arguments
+        auto args_tuple = std::make_tuple(std::forward<Args>(args)...);
+        // Create a sequence of the first num_required indices
+        return create_struct_impl<T>(args_tuple, std::make_index_sequence<N>{});
+    }
 }
 
 #endif

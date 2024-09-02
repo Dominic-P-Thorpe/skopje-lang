@@ -380,7 +380,15 @@ impl Parser {
             let new_symbols: Vec<Symbol> = match &pattern {
                 Pattern::EnumPattern(enum_name, variant_name, _) => {
                     let enum_type: Type = self.current_symbol_table.borrow().get(enum_name).unwrap().get_type();
-                    self.get_data_params_from_enum_pattern(&pattern, &enum_type, variant_name, line_num, col_num)
+                    let expected_params = match &enum_type.basic_type {
+                        SimpleType::Enum(_, variants, _) => 
+                            variants.get(variant_name).unwrap(),
+                        _ => panic!()
+                    };
+
+                    let data_params = self.get_data_params_from_enum_pattern(&pattern, &enum_type, variant_name, line_num, col_num);
+                    assert_eq!(data_params.len(), expected_params.len());
+                    data_params
                 }
                 Pattern::IdentifierPattern(id) => 
                     vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), line_num, col_num)]
@@ -911,8 +919,28 @@ impl Parser {
 
         let variant_params: IndexMap<String, SyntaxTree> = self.parse_enum_variant_params()?;
         let name_category = self.current_symbol_table.borrow().get(&name).unwrap().category;
-        let enum_type = match name_category {
+        let enum_type = match &name_category {
             SymbolType::EnumeraionType(_, t) => t,
+            _ => panic!()
+        };
+
+        match &enum_type.basic_type {
+            SimpleType::Enum(_, variants, _) => {
+                // check that the number of parameters passed to the variant matches the number of
+                // parameters the variant has
+                let enum_variant_params = variants.get(&variant_id).unwrap();
+                assert_eq!(enum_variant_params.len(), variant_params.len());
+
+                // check that the passed arguments have the correct type
+                for (p_name, p_type) in enum_variant_params {
+                    let variant_param_type = get_expr_type(
+                        variant_params.get(p_name).unwrap(), 
+                        &self.current_symbol_table.borrow()
+                    )?;
+                    
+                    assert!(variant_param_type.is_compatible_with(p_type));
+                }
+            }
             _ => panic!()
         };
 

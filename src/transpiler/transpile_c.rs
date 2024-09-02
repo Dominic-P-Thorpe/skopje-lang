@@ -434,6 +434,9 @@ public:
 
     union InternalUnion {{
         {2}
+
+        InternalUnion() {{}}
+        ~InternalUnion() {{}}
     }};
     
     template <typename... Args>
@@ -476,13 +479,14 @@ private:
             // the enumeration to ensure proper instantiation
             variants.iter().map(
                 |v| match &v.node {
-                    SyntaxNode::EnumVariant(name, _) => format!("
+                    SyntaxNode::EnumVariant(name, data_params) => format!("
             case {0}:
-                this->value.{1} = create_struct<InternalUnion::{0}>(args...);
+                this->value.{1} = create_struct<InternalUnion::{0}, {2}>(args...);
                 break;
 ", 
                         capitalize(name), 
-                        name.to_lowercase()
+                        name.to_lowercase(),
+                        data_params.len()
                     ),
                     _ => panic!()
                 }
@@ -532,12 +536,170 @@ mod test {
     fn test_for_loop() {
         let scanner = Scanner::new("tests/test_for_loop.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
-        match parser.parse() {
-            Err(e) => eprintln!("{}", e),
-            Ok(ast) => {
-                let mut transpiler = Transpiler::new(ast, "test_out.cpp");
-                println!("{:#?}", transpiler.transpile_c());
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+    }
+
+
+    #[test]
+    fn test_basic_enum_match() {
+        let scanner = Scanner::from_str("
+            enum MyEnum = VariantA | VariantB | VariantC;
+
+            fn main() -> i32 {
+                let my_enum: MyEnum = MyEnum::VariantA;
+                match my_enum {
+                    MyEnum::VariantA => { return 1; },
+                    MyEnum::VariantB => { return 2; },
+                    MyEnum::VariantC => { return 3; }
+                }
+
+                return 0;
             }
-        }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+    }
+
+
+    #[test]
+    fn test_basic_enum_data_match() {
+        let scanner = Scanner::from_str("
+            enum MyEnum = VariantA(a: i32, b: u32) | VariantB(a: i32) | VariantC;
+
+            fn main() -> i32 {
+                let my_enum: MyEnum = MyEnum::VariantA(a: 1, b: 2);
+                match my_enum {
+                    MyEnum::VariantA(x, y) => { return x + y + 1; },
+                    MyEnum::VariantB(a) => { return a; },
+                    MyEnum::VariantC => { return 3; }
+                }
+
+                return 0;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+    }
+
+
+    #[test]
+    fn test_enum_with_enum_as_data_param() {
+        let scanner = Scanner::from_str("
+            enum ParamEnum = ParamA | ParamB(internal: i32);
+            enum MyEnum = VariantA(a: i32, b: ParamEnum) | VariantB(a: i32) | VariantC;
+
+            fn main() -> i32 {
+                let my_enum: MyEnum = MyEnum::VariantA(a: 5, b: ParamEnum::ParamB(internal: 20));
+                match my_enum {
+                    MyEnum::VariantA(x, y) => {
+                        match y {
+                            ParamEnum::ParamA => { return x; },
+                            ParamEnum::ParamB(z) => {return x + z; }
+                        }
+                    },
+                    MyEnum::VariantB(a) => { return a; },
+                    MyEnum::VariantC => { return 3; }
+                }
+
+                return 0;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+    }
+
+
+    #[test]
+    #[ignore]
+    fn test_match_enum_with_specific_data_param() {
+        todo!()
+    }
+
+
+    #[test]
+    #[ignore]
+    fn test_enum_match_with_multiple_patterns() {
+        todo!()
+    }
+
+
+    #[test]
+    #[should_panic]
+    #[ignore]
+    fn test_non_total_enum_match() {
+        todo!()
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_incorrect_num_enum_init_data_params() {
+        let scanner = Scanner::from_str("
+            enum MyEnum = VariantA(a: i32, b: u32) | VariantB(a: i32) | VariantC;
+
+            fn main() -> i32 {
+                let my_enum: MyEnum = MyEnum::VariantA;
+                match my_enum {
+                    MyEnum::VariantA(x, y) => { return x + 1; },
+                    MyEnum::VariantB(a) => { return a; },
+                    MyEnum::VariantC => { return 3; }
+                }
+
+                return 0;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_incorrect_num_enum_pattern_data_params() {
+        let scanner = Scanner::from_str("
+            enum MyEnum = VariantA(a: i32, b: u32) | VariantB(a: i32) | VariantC;
+
+            fn main() -> i32 {
+                let my_enum: MyEnum = MyEnum::VariantA(a: 1, b: 2);
+                match my_enum {
+                    MyEnum::VariantA(x) => { return x + 1; },
+                    MyEnum::VariantB(a) => { return a; },
+                    MyEnum::VariantC => { return 3; }
+                }
+
+                return 0;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_incorrect_type_enum_data_params() {
+        let scanner = Scanner::from_str("
+            enum MyEnum = VariantA(a: i32, b: u32) | VariantB(a: i32) | VariantC;
+
+            fn main() -> i32 {
+                let my_enum: MyEnum = MyEnum::VariantA(a: 1, b: true);
+                match my_enum {
+                    MyEnum::VariantA(x, y) => { return x + y + 1; },
+                    MyEnum::VariantB(a) => { return a; },
+                    MyEnum::VariantC => { return 3; }
+                }
+
+                return 0;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
     }
 }
