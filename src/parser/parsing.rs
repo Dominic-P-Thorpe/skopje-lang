@@ -63,10 +63,12 @@ pub enum Pattern {
     // enum name, pattern name, pattern data params
     EnumPattern(String, String, Vec<Pattern>),
     IdentifierPattern(String),
+    // the sub-patterns within the tuple to match
+    TuplePattern(String, Vec<Pattern>),
     // placeholder name for the pattern variable, value of the literal
     IntLiteralPattern(String, i64),
-    BoolLiteralPattern(String, bool),
-    StrLiteralPattern(String, String)
+    StrLiteralPattern(String, String),
+    BoolLiteralPattern(String, bool)
 }
 
 
@@ -430,6 +432,25 @@ impl Parser {
                 Pattern::IdentifierPattern(id) => 
                     vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), line_num, col_num)],
                 
+                Pattern::TuplePattern(_, patterns) => {
+                    let mut new_symbols: Vec<Symbol> = vec![];
+                    for i in 0..patterns.len() {
+                        let pattern= patterns.get(i).unwrap();
+                        let member_type: &Type = match &match_expr_type.basic_type {
+                            SimpleType::Tuple(types) => types.get(i).unwrap(),
+                            _ => panic!()
+                        };
+
+                        match pattern {
+                            Pattern::IdentifierPattern(id) => 
+                                new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
+                            _ => ()
+                        }
+                    }
+
+                    new_symbols
+                }
+                
                 other => unimplemented!("{:?} has not yet been implemented!", other)
             };
 
@@ -475,7 +496,8 @@ impl Parser {
                         Pattern::IdentifierPattern(id)
                         | Pattern::BoolLiteralPattern(id, _)
                         | Pattern::IntLiteralPattern(id, _)
-                        | Pattern::StrLiteralPattern(id, _) => id,
+                        | Pattern::StrLiteralPattern(id, _) 
+                        | Pattern::TuplePattern(id, _) => id,
                         _ => panic!()
                     };
 
@@ -501,8 +523,25 @@ impl Parser {
             TokenType::IntLiteral(literal) => Ok(Pattern::IntLiteralPattern(self.generate_random_variable(), literal as i64)),
             TokenType::BoolLiteral(literal) => Ok(Pattern::BoolLiteralPattern(self.generate_random_variable(), literal)),
             TokenType::StrLiteral(literal) => Ok(Pattern::StrLiteralPattern(self.generate_random_variable(), literal)),
+            TokenType::OpenParen => self.parse_tuple_pattern(),
             _ => panic!()
         }
+    }
+
+
+    fn parse_tuple_pattern(&mut self) -> Result<Pattern, Box<dyn Error>> {
+        let mut patterns: Vec<Pattern> = vec![];
+        loop {
+            patterns.push(self.parse_match_pattern()?);
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Comma => continue,
+                TokenType::CloseParen => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+            }
+        }
+
+        Ok(Pattern::TuplePattern(self.generate_random_variable(), patterns))
     }
 
 

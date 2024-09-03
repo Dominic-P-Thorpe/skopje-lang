@@ -261,19 +261,59 @@ impl Transpiler {
             match pattern {
                 Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => 
                     patterns_strs.push(self.transpile_enum_pattern(body, enum_name, &variant_name, inner_patterns, match_expr_str, indent)?),
+
+                Pattern::TuplePattern(_, patterns) => 
+                    patterns_strs.push(self.transpile_tuple_pattern(patterns, match_expr_str, body, indent)?),
+
                 Pattern::IdentifierPattern(id) => patterns_strs.push(format!(
                     "{0}else {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}\n{0}}}", 
                     "    ".repeat(indent),
                     id, match_expr_str,
                     self.transpile_c_tree(body, indent + 1)?,
                 )),
-
+                
                 _ => unimplemented!()
             }
         }
 
         // join the pattern branches together
         Ok(patterns_strs.join("\n"))
+    }
+
+
+    fn transpile_tuple_pattern(&mut self, patterns: &Vec<Pattern>, match_expr_str: &str, body: &SyntaxTree, indent: usize) -> Result<String, Box<dyn Error>> {
+        let pattern_variables_strs: String = self.get_tuple_pattern_variables(patterns, match_expr_str, indent);
+        let conditions_strs: String = self.transpile_conditional_patterns(patterns);
+
+        Ok(format!(
+            "{1}\n{0}\tif ({3}) {{{0}{2}\n{0}\t}}", 
+            "\t".repeat(indent - 1), 
+            pattern_variables_strs, 
+            self.transpile_c_tree(body, indent + 1)?,
+            conditions_strs
+        ))
+    }
+
+
+    fn get_tuple_pattern_variables(&self, patterns: &Vec<Pattern>, match_expr_str: &str, indent: usize) -> String {
+        let mut pattern_variables_strs: Vec<String> = vec![];
+        for i in 0..patterns.len() {
+            let pattern= patterns.get(i).unwrap();
+            match pattern {
+                Pattern::BoolLiteralPattern(id, _)
+                | Pattern::IntLiteralPattern(id, _)
+                | Pattern::StrLiteralPattern(id, _)
+                | Pattern::IdentifierPattern(id) => 
+                    pattern_variables_strs.push(format!("{}auto {} = std::get<{}>({});", "\t".repeat(indent - 1), id, i, match_expr_str)),
+                Pattern::TuplePattern(_, sub_patterns) => {
+                    let new_match_expr_str = format!("std::get<{}>({})", i, match_expr_str);
+                    pattern_variables_strs.push(self.get_tuple_pattern_variables(sub_patterns, &new_match_expr_str, indent))
+                }
+                _ => ()
+            }
+        }
+
+        pattern_variables_strs.join("\n\t")
     }
 
 
@@ -311,22 +351,23 @@ impl Transpiler {
             variant_name.to_lowercase(),
             self.transpile_enum_data_params(inner_patterns, &enum_type, variant_name, indent + 1),
             match_expr_str,
-            self.transpile_enum_sub_patterns(inner_patterns)
+            self.transpile_conditional_patterns(inner_patterns)
         ));
 
         Ok(patterns_strs.join("\n"))
     }
 
 
-    fn transpile_enum_sub_patterns(&self, sub_patterns: &Vec<Pattern>) -> String {
+    fn transpile_conditional_patterns(&self, sub_patterns: &Vec<Pattern>) -> String {
         let mut sub_pattern_strs: Vec<String> = vec![];
         for sub_pattern in sub_patterns {
             match sub_pattern {
                 Pattern::IntLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
                 Pattern::StrLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
                 Pattern::BoolLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
+                Pattern::TuplePattern(_, sub_sub_patterns) => sub_pattern_strs.push(self.transpile_conditional_patterns(sub_sub_patterns)),
                 Pattern::IdentifierPattern(_) => (),
-                Pattern::EnumPattern(_, _, _) => unimplemented!(),
+                Pattern::EnumPattern(_, _, _) => unimplemented!()
             }
         }
 
@@ -351,16 +392,25 @@ impl Transpiler {
 
         let mut params_str: String = String::new();
         for i in 0..enum_variants.len() {
-            let pattern_param_name = match inner_patterns.get(i).unwrap() {
+            let pattern_param_name = match &inner_patterns.get(i).unwrap() {
                 Pattern::IdentifierPattern(id)
                 | Pattern::BoolLiteralPattern(id, _)
                 | Pattern::IntLiteralPattern(id, _)
-                | Pattern::StrLiteralPattern(id, _) => id,
+                | Pattern::StrLiteralPattern(id, _)
+                | Pattern::TuplePattern(id, _) => id,
                 _ => panic!()
             };
 
             let enum_param_name = enum_variants.get_index(i).unwrap().0;
             params_str += &format!("{0}auto {1} = iu.{2};\n", "\t".repeat(indent), pattern_param_name, enum_param_name);
+
+            match inner_patterns.get(i).unwrap() {
+                Pattern::TuplePattern(_, patterns) => {
+                    params_str += "\t";
+                    params_str += &self.get_tuple_pattern_variables(patterns, &pattern_param_name, indent);
+                }
+                _ => ()
+            }
         }
 
         params_str
