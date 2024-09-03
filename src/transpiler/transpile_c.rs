@@ -734,6 +734,54 @@ mod test {
 
 
     #[test]
+    fn test_nested_tuple_pattern() {
+        let scanner = Scanner::from_str("
+            fn main() -> i32 {
+            let e: (i32, bool, (i32, i32)) = (1, true, (2, 3));
+            match e {
+                (1, true, (y, 5)) => { return 1; },
+                (a, b, c) => { return 2; }
+            }
+            return 0;
+        }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+    }
+
+
+    #[test]
+    fn test_match_tuple_in_enum_pattern() {
+        let scanner = Scanner::from_str("
+            enum MyEnum = VariantA | VariantB(x: (i32, i32));
+
+
+            fn main() -> i32 {
+                let e: MyEnum = MyEnum::VariantB(x: (1, 2));
+                match e {
+                    MyEnum::VariantA => {
+                        return 0;
+                    },
+
+                    MyEnum::VariantB((1, 2)) => {
+                        return 1;
+                    },
+
+                    MyEnum::VariantB(x) => {
+                        return 2;
+                    }
+                }
+                return 0;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+    }
+
+
+    #[test]
     #[should_panic]
     #[ignore]
     fn test_non_total_enum_match() {
