@@ -65,6 +65,7 @@ pub enum Pattern {
     IdentifierPattern(String),
     // the sub-patterns within the tuple to match
     TuplePattern(String, Vec<Pattern>),
+    ArrayPattern(String, Vec<Pattern>, Box<Option<Pattern>>),
     // placeholder name for the pattern variable, value of the literal
     IntLiteralPattern(String, i64),
     StrLiteralPattern(String, String),
@@ -450,6 +451,29 @@ impl Parser {
 
                     new_symbols
                 }
+
+                Pattern::ArrayPattern(_, patterns, end) => {
+                    let mut new_symbols: Vec<Symbol> = vec![];
+                    let member_type: Type = get_array_inner_type(&match_expr_type);
+                    for pattern in patterns {
+                        match pattern {
+                            Pattern::IdentifierPattern(id) => 
+                                new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
+                            _ => ()
+                        }
+                    }
+
+                    match &**end {
+                        None => (),
+                        Some(p) => match p {
+                            Pattern::IdentifierPattern(id) => 
+                                new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
+                            _ => ()
+                        }
+                    }
+
+                    new_symbols
+                }
                 
                 other => unimplemented!("{:?} has not yet been implemented!", other)
             };
@@ -524,7 +548,45 @@ impl Parser {
             TokenType::BoolLiteral(literal) => Ok(Pattern::BoolLiteralPattern(self.generate_random_variable(), literal)),
             TokenType::StrLiteral(literal) => Ok(Pattern::StrLiteralPattern(self.generate_random_variable(), literal)),
             TokenType::OpenParen => self.parse_tuple_pattern(),
-            _ => panic!()
+            TokenType::OpenSquare => self.parse_array_pattern(),
+            _ => panic!("Did not expect {:?}", next_token)
+        }
+    }
+
+
+    fn parse_array_pattern(&mut self) -> Result<Pattern, Box<dyn Error>> {
+        // return an empty array pattern if the list of subpatterns is empty
+        if let TokenType::CloseSquare = self.tokens.front().unwrap().token_type {
+            self.tokens.pop_front().unwrap();
+            return Ok(Pattern::ArrayPattern(self.generate_random_variable(), vec![], Box::new(None)));
+        }
+
+        // get colon-separated patterns until a close square bracket is encountered
+        let mut patterns: Vec<Pattern> = vec![];
+        loop {
+            patterns.push(self.parse_match_pattern()?);
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Colon => (),
+                TokenType::CloseSquare => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare)))
+            }
+        }
+
+        // if there is only 1 pattern, then don't try and split the pattern into a head and tail as
+        // there is only a head
+        if patterns.len() <= 1 {
+            return Ok(Pattern::ArrayPattern(self.generate_random_variable(), patterns, Box::new(None)));
+        }
+
+        // if there is more than 1 subpattern, and the last subpattern is an identifier, then the
+        // last subpattern is for the tail
+        match &patterns.last().unwrap() {
+            Pattern::IdentifierPattern(_) => {
+                let last_pattern = patterns.pop().unwrap();
+                Ok(Pattern::ArrayPattern(self.generate_random_variable(), patterns, Box::new(Some(last_pattern))))
+            }
+            _ => Ok(Pattern::ArrayPattern(self.generate_random_variable(), patterns, Box::new(None)))
         }
     }
 

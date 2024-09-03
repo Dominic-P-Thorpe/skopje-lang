@@ -10,6 +10,7 @@
 #include <string>
 #include <tuple>
 #include <array>
+#include <ranges>
 #include <utility>
 #include <cstdint>
 #include <experimental/array>
@@ -183,6 +184,36 @@ constexpr T create_struct(Args&&... args) {
         // Create a sequence of the first num_required indices
         return create_struct_impl<T>(args_tuple, std::make_index_sequence<N>{});
     }
+}
+
+
+/// Requires that the given type parameter be an instance of std::array
+template<typename T>
+concept IsStdArray = requires(T) {
+    typename std::tuple_size<T>::type;
+    requires std::is_same_v<T, std::array<typename T::value_type, std::tuple_size_v<T>>>;
+};
+
+
+/// @brief Gets the last elements of an std::array instance starting at the given index
+/// @tparam T The type of the array, such as std::array<uint_32, 20>
+/// @tparam Start The index of the first element to get from the original array
+/// @param arr The array to get the last elements of
+/// @return An array of the last elements of the original array starting from the element at the 
+/// given starting index
+template <IsStdArray T, std::size_t Start>
+constexpr auto get_last_elements(const T& arr) {
+    // calculate the size of the new array
+    constexpr std::size_t N = std::tuple_size_v<T>;
+
+    // the new array to store the final elements in
+    constexpr auto subarray_size = N - Start;
+    std::array<typename T::value_type, subarray_size> result{};
+    
+    // copy the final elements of the old array into the new array
+    std::ranges::copy(arr | std::views::drop(Start), result.begin());
+    
+    return result;
 }
 
 #endif

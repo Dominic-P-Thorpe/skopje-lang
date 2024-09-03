@@ -246,14 +246,14 @@ impl Transpiler {
         if let SyntaxNode::MatchStmt(match_expr, patterns, match_type) = &tree.node {
             assert!(patterns.len() > 0);
             let match_expr_str = self.transpile_typed_expr_c(&*match_expr, &match_type)?;
-            return Ok(self.transpile_patterns(&patterns, &match_expr_str, indent + 1)?);
+            return Ok(self.transpile_patterns(&patterns, &match_expr_str, match_type, indent + 1)?);
         }
         
         panic!("Expected match statement, got {:?}", tree)
     }
 
 
-    fn transpile_patterns(&mut self, patterns: &Vec<(Vec<Pattern>, SyntaxTree)>, match_expr_str: &str, indent: usize) -> Result<String, Box<dyn Error>> {
+    fn transpile_patterns(&mut self, patterns: &Vec<(Vec<Pattern>, SyntaxTree)>, match_expr_str: &str, match_expr_type: &Type, indent: usize) -> Result<String, Box<dyn Error>> {
         let mut patterns_strs: Vec<String> = vec![];
         for (pattern, body) in patterns {
             // get the first pattern in the list of patterns to match against
@@ -264,6 +264,9 @@ impl Transpiler {
 
                 Pattern::TuplePattern(_, patterns) => 
                     patterns_strs.push(self.transpile_tuple_pattern(patterns, match_expr_str, body, indent)?),
+                    
+                Pattern::ArrayPattern(_, patterns, end) =>
+                    patterns_strs.push(self.transpile_array_pattern(patterns, match_expr_str, match_expr_type, body, end, indent)?),
 
                 Pattern::IdentifierPattern(id) => patterns_strs.push(format!(
                     "{0}else {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}\n{0}}}", 
@@ -278,6 +281,72 @@ impl Transpiler {
 
         // join the pattern branches together
         Ok(patterns_strs.join("\n"))
+    }
+
+
+    fn transpile_array_pattern(
+        &mut self, 
+        patterns: &Vec<Pattern>,
+        match_expr_str: &str, 
+        match_expr_type: &Type, 
+        body: &SyntaxTree, 
+        end: &Box<Option<Pattern>>, 
+        indent: usize
+    ) -> Result<String, Box<dyn Error>> {
+        let pattern_variables_strs: String = self.get_array_pattern_variables(patterns, match_expr_str, match_expr_type, end, indent);
+        let conditions_strs: String = self.transpile_conditional_patterns(patterns);
+        
+        Ok(format!(
+            "{1}\n{0}\tif ({3}) {{{0}{2}\n{0}\t}}", 
+            "\t".repeat(indent - 1), 
+            pattern_variables_strs, 
+            self.transpile_c_tree(body, indent + 1)?,
+            conditions_strs
+        ))
+    }
+
+
+    fn get_array_pattern_variables(
+        &mut self, 
+        patterns: &Vec<Pattern>, 
+        match_expr_str: &str, 
+        match_expr_type: &Type, 
+        end: &Box<Option<Pattern>>, 
+        indent: usize
+    ) -> String {
+        let mut pattern_variables_strs: Vec<String> = vec![];
+        for i in 0..patterns.len() {
+            let pattern= patterns.get(i).unwrap();
+            match pattern {
+                Pattern::BoolLiteralPattern(id, _)
+                | Pattern::IntLiteralPattern(id, _)
+                | Pattern::StrLiteralPattern(id, _)
+                | Pattern::IdentifierPattern(id) => 
+                    pattern_variables_strs.push(format!("{}auto {} = {}[{}];", "\t".repeat(indent - 1), id, match_expr_str, i)),
+                Pattern::TuplePattern(_, sub_patterns) => {
+                    let new_match_expr_str = format!("std::get<{}>({})", i, match_expr_str);
+                    pattern_variables_strs.push(self.get_tuple_pattern_variables(sub_patterns, &new_match_expr_str, indent))
+                }
+                _ => ()
+            }
+        }
+
+        match &**end {
+            None => (),
+            Some(pattern) => match pattern {
+                Pattern::IdentifierPattern(id) => pattern_variables_strs.push(format!(
+                    "{}auto {} = get_last_elements<{}, {}>({});",
+                    "\t".repeat(indent - 1),
+                    id,
+                    match_expr_type.as_ctype_str(),
+                    patterns.len() + 1,
+                    match_expr_str
+                )),
+                _ => panic!()
+            }
+        }
+
+        pattern_variables_strs.join("\n\t")
     }
 
 
@@ -367,8 +436,9 @@ impl Transpiler {
                 Pattern::BoolLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
                 Pattern::TuplePattern(_, sub_sub_patterns) => sub_pattern_strs.push(self.transpile_conditional_patterns(sub_sub_patterns)),
                 Pattern::IdentifierPattern(_) => (),
-                Pattern::EnumPattern(_, _, _) => unimplemented!()
-            }
+                Pattern::EnumPattern(_, _, _)  
+                | Pattern::ArrayPattern(_, _, _) => unimplemented!()
+            } 
         }
 
         if sub_pattern_strs.len() == 0 {
