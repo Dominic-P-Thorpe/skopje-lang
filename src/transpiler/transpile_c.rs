@@ -267,12 +267,8 @@ impl Transpiler {
                 Pattern::ArrayPattern(_, patterns, end) =>
                     patterns_strs.push(self.transpile_array_pattern(patterns, match_expr_str, match_expr_type, body, end, indent)?),
 
-                Pattern::IdentifierPattern(id) => patterns_strs.push(format!(
-                    "{0}else {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}\n{0}}}", 
-                    "    ".repeat(indent),
-                    id, match_expr_str,
-                    self.transpile_c_tree(body, indent + 1)?,
-                )),
+                Pattern::IdentifierPattern(id) => 
+                    patterns_strs.push(self.transpile_default_stmt(id, match_expr_str, match_expr_type, body, indent)?),
 
                 Pattern::IntLiteralPattern(_, literal) => patterns_strs.push(format!(
                     "{0}if ({1} == {2}) {{{0}{3}\n{0}}}", 
@@ -308,6 +304,33 @@ impl Transpiler {
 
         // join the pattern branches together
         Ok(patterns_strs.join("\n"))
+    }
+
+
+    fn transpile_default_stmt(
+        &mut self, 
+        id: &str, 
+        match_expr_str: &str, 
+        match_expr_type: &Type, 
+        body: &SyntaxTree, 
+        indent: usize
+    ) -> Result<String, Box<dyn Error>> {
+        match match_expr_type.basic_type {
+            SimpleType::Enum(_, _, _) =>
+                Ok(format!(
+                    "{0}else {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}\n{0}}}", 
+                    "    ".repeat(indent),
+                    id, match_expr_str,
+                    self.transpile_c_tree(body, indent + 1)?,
+                )),
+            _ => 
+            Ok(format!(
+                "{0}else {{\n\t{0}auto {1} = {2};\n{3}\n\t{0}\n{0}}}", 
+                "    ".repeat(indent),
+                id, match_expr_str,
+                self.transpile_c_tree(body, indent + 1)?,
+            ))
+        }
     }
 
 
