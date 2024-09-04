@@ -176,7 +176,7 @@ constexpr T create_struct_impl(Tuple&& tuple, std::index_sequence<Is...>) {
 /// @return An instance of T created using the first N arguments from args.
 template <typename T, std::size_t N, typename... Args>
 constexpr T create_struct(Args&&... args) {
-    if constexpr (std::is_empty_v<T>) {
+    if constexpr (sizeof...(Args) < N) {
         return T{};
     } else {
         // Create a tuple of the arguments
