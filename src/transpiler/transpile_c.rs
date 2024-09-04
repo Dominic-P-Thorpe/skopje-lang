@@ -274,8 +274,27 @@ impl Transpiler {
                     id, match_expr_str,
                     self.transpile_c_tree(body, indent + 1)?,
                 )),
-                
-                _ => unimplemented!()
+
+                Pattern::IntLiteralPattern(_, literal) => patterns_strs.push(format!(
+                    "{0}if ({1} == {2}) {{{0}{3}\n{0}}}", 
+                    "\t".repeat(indent), 
+                    match_expr_str, literal, 
+                    self.transpile_c_tree(body, indent + 1)?
+                )),
+
+                Pattern::BoolLiteralPattern(_, literal) => patterns_strs.push(format!(
+                    "{0}if ({1} == {2}) {{{0}{3}\n{0}}}", 
+                    "\t".repeat(indent), 
+                    match_expr_str, literal, 
+                    self.transpile_c_tree(body, indent + 1)?
+                )),
+
+                Pattern::StrLiteralPattern(_, literal) => patterns_strs.push(format!(
+                    "{0}if ({1} == {2}) {{{0}{3}\n{0}}}", 
+                    "\t".repeat(indent), 
+                    match_expr_str, literal, 
+                    self.transpile_c_tree(body, indent + 1)?
+                )),
             }
         }
 

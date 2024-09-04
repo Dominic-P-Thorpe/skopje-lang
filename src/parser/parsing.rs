@@ -475,7 +475,9 @@ impl Parser {
                     new_symbols
                 }
                 
-                other => unimplemented!("{:?} has not yet been implemented!", other)
+                Pattern::IntLiteralPattern(_, _) 
+                | Pattern::BoolLiteralPattern(_, _) 
+                | Pattern::StrLiteralPattern(_, _) => vec![]
             };
 
             let statement_block: SyntaxTree = self.parse_stmt_block(new_symbols)?;
