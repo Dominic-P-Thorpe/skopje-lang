@@ -47,7 +47,7 @@ use crate::parser::types::Type;
 
 
 /// Represents different types of symbols that can be stored in the symbol table.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SymbolType {
     /// Represents a variable with a name and a type.
     Variable(String, Type),
@@ -83,7 +83,7 @@ impl SymbolType {
 
 
 /// Represents a symbol in the symbol table with its location and type information.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub struct Symbol {
     /// The line number where the symbol was declared.

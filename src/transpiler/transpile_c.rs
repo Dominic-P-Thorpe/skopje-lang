@@ -253,11 +253,10 @@ impl Transpiler {
     }
 
 
-    fn transpile_patterns(&mut self, patterns: &Vec<(Vec<Pattern>, SyntaxTree)>, match_expr_str: &str, match_expr_type: &Type, indent: usize) -> Result<String, Box<dyn Error>> {
+    fn transpile_patterns(&mut self, patterns: &Vec<(Pattern, SyntaxTree)>, match_expr_str: &str, match_expr_type: &Type, indent: usize) -> Result<String, Box<dyn Error>> {
         let mut patterns_strs: Vec<String> = vec![];
         for (pattern, body) in patterns {
             // get the first pattern in the list of patterns to match against
-            let pattern = pattern.get(0).unwrap();
             match &pattern {
                 Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => 
                     patterns_strs.push(self.transpile_enum_pattern(body, enum_name, &variant_name, inner_patterns, match_expr_str, indent)?),

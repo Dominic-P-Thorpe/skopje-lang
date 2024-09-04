@@ -97,7 +97,7 @@ pub enum SyntaxNode {
     // type of the expression to match
     // Members of vector of patterns are a tuple where the first element is a vector of patterns
     // and the second is the body to run if any of those patterns are a match
-    MatchStmt(Box<SyntaxTree>, Vec<(Vec<Pattern>, SyntaxTree)>, Type),
+    MatchStmt(Box<SyntaxTree>, Vec<(Pattern, SyntaxTree)>, Type),
     // variable name, type, expression
     LetStmt(String, Type, Box<SyntaxTree>),
     // variable name, new value expression, type of the variable being reassigned
@@ -407,26 +407,26 @@ impl Parser {
     }
 
 
-    fn parse_match_patterns(&mut self, match_expr_type: &Type) -> Result<Vec<(Vec<Pattern>, SyntaxTree)>, Box<dyn Error>> {
-        let mut patterns: Vec<(Vec<Pattern>, SyntaxTree)> = vec![];
+    fn parse_match_patterns(&mut self, match_expr_type: &Type) -> Result<Vec<(Pattern, SyntaxTree)>, Box<dyn Error>> {
+        let mut patterns: Vec<(Pattern, SyntaxTree)> = vec![];
         loop {
             let next_token = self.tokens.front().unwrap();
             let (line_num, col_num) = (next_token.line_number, next_token.col_number);
-            let pattern = self.parse_match_pattern()?;
-
-            let next_token = self.tokens.pop_front().unwrap();
-            assert_token_type!(next_token, ThickArrow);
+            let sub_patterns: Vec<Pattern> = self.get_sub_patterns()?;
+            
             let next_token = self.tokens.pop_front().unwrap();
             assert_token_type!(next_token, OpenCurly);
 
-            let new_symbols: Vec<Symbol> = self.get_pattern_symbols(&pattern, match_expr_type, line_num, col_num);
+            let new_symbols: Vec<Symbol> = self.get_subpattern_symbols(&sub_patterns, match_expr_type, line_num, col_num)?;
 
             let statement_block: SyntaxTree = self.parse_stmt_block(new_symbols)?;
 
             let next_token = self.tokens.pop_front().unwrap();
             assert_token_type!(next_token, CloseCurly);
 
-            patterns.push((vec![pattern], statement_block));
+            for p in sub_patterns {
+                patterns.push((p, statement_block.clone()));
+            }
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
@@ -437,6 +437,42 @@ impl Parser {
         }
 
         Ok(patterns)
+    }
+
+
+    fn get_sub_patterns(&mut self) -> Result<Vec<Pattern>, Box<dyn Error>> {
+        let mut sub_patterns: Vec<Pattern> = vec![];
+        loop {
+            sub_patterns.push(self.parse_match_pattern()?);
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Pipe => continue,
+                TokenType::ThickArrow => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token.clone(), ExpectedToken::ThickArrow)))
+            }
+        }
+
+        Ok(sub_patterns)
+    }
+
+
+    fn get_subpattern_symbols(
+        &mut self, 
+        patterns: &Vec<Pattern>, 
+        match_expr_type: &Type, 
+        line_num: usize, 
+        col_num: usize
+    ) -> Result<Vec<Symbol>, Box<dyn Error>> {
+        if patterns.len() == 0 {
+            return Ok(vec![]);
+        }
+
+        let symbols = self.get_pattern_symbols(patterns.first().unwrap(), match_expr_type, line_num, col_num);
+        for pattern in patterns {
+            assert_eq!(symbols, self.get_pattern_symbols(&pattern, match_expr_type, line_num, col_num));
+        }
+
+        Ok(symbols)
     }
 
 
