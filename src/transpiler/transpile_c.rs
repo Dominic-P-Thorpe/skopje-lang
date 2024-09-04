@@ -258,7 +258,7 @@ impl Transpiler {
         for (pattern, body) in patterns {
             // get the first pattern in the list of patterns to match against
             let pattern = pattern.get(0).unwrap();
-            match pattern {
+            match &pattern {
                 Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => 
                     patterns_strs.push(self.transpile_enum_pattern(body, enum_name, &variant_name, inner_patterns, match_expr_str, indent)?),
 
@@ -295,6 +295,15 @@ impl Transpiler {
                     match_expr_str, literal, 
                     self.transpile_c_tree(body, indent + 1)?
                 )),
+
+                Pattern::BetweenEqRangePattern(_, _, _)
+                | Pattern::GreaterThanEqRangePattern(_, _)
+                | Pattern::LessThanEqRangePattern(_, _) => patterns_strs.push(format!(
+                    "{0}if ({1}) {{{0}{2}\n{0}}}",
+                    "\t".repeat(indent),
+                    self.transpile_conditional_patterns(&vec![pattern.clone()], match_expr_str),
+                    self.transpile_c_tree(body, indent + 1)?
+                )),
             }
         }
 
@@ -313,7 +322,7 @@ impl Transpiler {
         indent: usize
     ) -> Result<String, Box<dyn Error>> {
         let pattern_variables_strs: String = self.get_array_pattern_variables(patterns, match_expr_str, match_expr_type, end, indent);
-        let conditions_strs: String = self.transpile_conditional_patterns(patterns);
+        let conditions_strs: String = self.transpile_conditional_patterns(patterns, match_expr_str);
         
         Ok(format!(
             "{1}\n{0}\tif ({3}) {{{0}{2}\n{0}\t}}", 
@@ -371,7 +380,7 @@ impl Transpiler {
 
     fn transpile_tuple_pattern(&mut self, patterns: &Vec<Pattern>, match_expr_str: &str, body: &SyntaxTree, indent: usize) -> Result<String, Box<dyn Error>> {
         let pattern_variables_strs: String = self.get_tuple_pattern_variables(patterns, match_expr_str, indent);
-        let conditions_strs: String = self.transpile_conditional_patterns(patterns);
+        let conditions_strs: String = self.transpile_conditional_patterns(patterns, match_expr_str);
 
         Ok(format!(
             "{1}\n{0}\tif ({3}) {{{0}{2}\n{0}\t}}", 
@@ -439,24 +448,27 @@ impl Transpiler {
             variant_name.to_lowercase(),
             self.transpile_enum_data_params(inner_patterns, &enum_type, variant_name, indent + 1),
             match_expr_str,
-            self.transpile_conditional_patterns(inner_patterns)
+            self.transpile_conditional_patterns(inner_patterns, match_expr_str)
         ));
 
         Ok(patterns_strs.join("\n"))
     }
 
 
-    fn transpile_conditional_patterns(&self, sub_patterns: &Vec<Pattern>) -> String {
+    fn transpile_conditional_patterns(&self, sub_patterns: &Vec<Pattern>, match_expr_str: &str) -> String {
         let mut sub_pattern_strs: Vec<String> = vec![];
         for sub_pattern in sub_patterns {
             match sub_pattern {
                 Pattern::IntLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
                 Pattern::StrLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
                 Pattern::BoolLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
-                Pattern::TuplePattern(_, sub_sub_patterns) => sub_pattern_strs.push(self.transpile_conditional_patterns(sub_sub_patterns)),
+                Pattern::TuplePattern(_, sub_sub_patterns) => sub_pattern_strs.push(self.transpile_conditional_patterns(sub_sub_patterns, match_expr_str)),
+                Pattern::BetweenEqRangePattern(_, start, end) => sub_pattern_strs.push(format!("{1} >= {0} && {0} <= {2}", match_expr_str, start, end)),
+                Pattern::LessThanEqRangePattern(_, start) => sub_pattern_strs.push(format!("{} <= {}", match_expr_str, start)),
+                Pattern::GreaterThanEqRangePattern(_, start) => sub_pattern_strs.push(format!("{} >= {}", match_expr_str, start)), 
                 Pattern::IdentifierPattern(_) => (),
                 Pattern::EnumPattern(_, _, _)  
-                | Pattern::ArrayPattern(_, _, _) => unimplemented!()
+                | Pattern::ArrayPattern(_, _, _) => unimplemented!(),
             } 
         }
 

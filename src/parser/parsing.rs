@@ -66,6 +66,9 @@ pub enum Pattern {
     // the sub-patterns within the tuple to match
     TuplePattern(String, Vec<Pattern>),
     ArrayPattern(String, Vec<Pattern>, Box<Option<Pattern>>),
+    LessThanEqRangePattern(String, i64),
+    GreaterThanEqRangePattern(String, i64),
+    BetweenEqRangePattern(String, i64, i64),
     // placeholder name for the pattern variable, value of the literal
     IntLiteralPattern(String, i64),
     StrLiteralPattern(String, String),
@@ -416,69 +419,7 @@ impl Parser {
             let next_token = self.tokens.pop_front().unwrap();
             assert_token_type!(next_token, OpenCurly);
 
-            let new_symbols: Vec<Symbol> = match &pattern {
-                Pattern::EnumPattern(enum_name, variant_name, _) => {
-                    let enum_type: Type = self.current_symbol_table.borrow().get(enum_name).unwrap().get_type();
-                    let expected_params = match &enum_type.basic_type {
-                        SimpleType::Enum(_, variants, _) => 
-                            variants.get(variant_name).unwrap(),
-                        _ => panic!()
-                    };
-
-                    let data_params = self.get_data_params_from_enum_pattern(&pattern, &enum_type, variant_name, line_num, col_num);
-                    assert_eq!(data_params.len(), expected_params.len());
-                    data_params
-                }
-
-                Pattern::IdentifierPattern(id) => 
-                    vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), line_num, col_num)],
-                
-                Pattern::TuplePattern(_, patterns) => {
-                    let mut new_symbols: Vec<Symbol> = vec![];
-                    for i in 0..patterns.len() {
-                        let pattern= patterns.get(i).unwrap();
-                        let member_type: &Type = match &match_expr_type.basic_type {
-                            SimpleType::Tuple(types) => types.get(i).unwrap(),
-                            _ => panic!()
-                        };
-
-                        match pattern {
-                            Pattern::IdentifierPattern(id) => 
-                                new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
-                            _ => ()
-                        }
-                    }
-
-                    new_symbols
-                }
-
-                Pattern::ArrayPattern(_, patterns, end) => {
-                    let mut new_symbols: Vec<Symbol> = vec![];
-                    let member_type: Type = get_array_inner_type(&match_expr_type);
-                    for pattern in patterns {
-                        match pattern {
-                            Pattern::IdentifierPattern(id) => 
-                                new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
-                            _ => ()
-                        }
-                    }
-
-                    match &**end {
-                        None => (),
-                        Some(p) => match p {
-                            Pattern::IdentifierPattern(id) => 
-                                new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
-                            _ => ()
-                        }
-                    }
-
-                    new_symbols
-                }
-                
-                Pattern::IntLiteralPattern(_, _) 
-                | Pattern::BoolLiteralPattern(_, _) 
-                | Pattern::StrLiteralPattern(_, _) => vec![]
-            };
+            let new_symbols: Vec<Symbol> = self.get_pattern_symbols(&pattern, match_expr_type, line_num, col_num);
 
             let statement_block: SyntaxTree = self.parse_stmt_block(new_symbols)?;
 
@@ -496,6 +437,71 @@ impl Parser {
         }
 
         Ok(patterns)
+    }
+
+
+    fn get_pattern_symbols(&mut self, pattern: &Pattern, match_expr_type: &Type, line_num: usize, col_num: usize) -> Vec<Symbol> {
+        match &pattern {
+            Pattern::EnumPattern(enum_name, variant_name, _) => {
+                let enum_type: Type = self.current_symbol_table.borrow().get(enum_name).unwrap().get_type();
+                let expected_params = match &enum_type.basic_type {
+                    SimpleType::Enum(_, variants, _) => 
+                        variants.get(variant_name).unwrap(),
+                    _ => panic!()
+                };
+
+                let data_params = self.get_data_params_from_enum_pattern(&pattern, &enum_type, variant_name, line_num, col_num);
+                assert_eq!(data_params.len(), expected_params.len());
+                data_params
+            }
+
+            Pattern::IdentifierPattern(id) => 
+                vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), line_num, col_num)],
+            
+            Pattern::TuplePattern(_, patterns) => {
+                let mut new_symbols: Vec<Symbol> = vec![];
+                for i in 0..patterns.len() {
+                    let pattern= patterns.get(i).unwrap();
+                    let member_type: &Type = match &match_expr_type.basic_type {
+                        SimpleType::Tuple(types) => types.get(i).unwrap(),
+                        _ => panic!()
+                    };
+
+                    match pattern {
+                        Pattern::IdentifierPattern(id) => 
+                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
+                        _ => ()
+                    }
+                }
+
+                new_symbols
+            }
+
+            Pattern::ArrayPattern(_, patterns, end) => {
+                let mut new_symbols: Vec<Symbol> = vec![];
+                let member_type: Type = get_array_inner_type(&match_expr_type);
+                for pattern in patterns {
+                    match pattern {
+                        Pattern::IdentifierPattern(id) => 
+                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
+                        _ => ()
+                    }
+                }
+
+                match &**end {
+                    None => (),
+                    Some(p) => match p {
+                        Pattern::IdentifierPattern(id) => 
+                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
+                        _ => ()
+                    }
+                }
+
+                new_symbols
+            }
+
+            _ => vec![]
+        }
     }
 
 
@@ -546,12 +552,43 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::Identifier(enum_name) => self.parse_identifier_or_enum_pattern(enum_name),
-            TokenType::IntLiteral(literal) => Ok(Pattern::IntLiteralPattern(self.generate_random_variable(), literal as i64)),
             TokenType::BoolLiteral(literal) => Ok(Pattern::BoolLiteralPattern(self.generate_random_variable(), literal)),
             TokenType::StrLiteral(literal) => Ok(Pattern::StrLiteralPattern(self.generate_random_variable(), literal)),
+            TokenType::IntLiteral(literal) => self.parse_int_range_pattern(literal.try_into().unwrap()),
             TokenType::OpenParen => self.parse_tuple_pattern(),
             TokenType::OpenSquare => self.parse_array_pattern(),
+            TokenType::DoubleDot => self.parse_leq_range_pattern(),
             _ => panic!("Did not expect {:?}", next_token)
+        }
+    }
+
+
+    fn parse_leq_range_pattern(&mut self) -> Result<Pattern, Box<dyn Error>> {
+        let next_token = self.tokens.pop_front().unwrap();
+        let pattern_id = self.generate_random_variable();
+        match next_token.token_type {
+            TokenType::IntLiteral(literal) => Ok(Pattern::LessThanEqRangePattern(pattern_id, literal.try_into()?)),
+            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Literal)))
+        }
+    }
+
+
+    fn parse_int_range_pattern(&mut self, literal: i64) -> Result<Pattern, Box<dyn Error>> {
+        let pattern_id = self.generate_random_variable();
+        let next_token = self.tokens.front().unwrap();
+        match next_token.token_type {
+            TokenType::DoubleDot => {
+                self.tokens.pop_front().unwrap();
+                let next_token = self.tokens.front().unwrap();
+                match next_token.token_type {
+                    TokenType::IntLiteral(end_literal) => {
+                        self.tokens.pop_front().unwrap();
+                        Ok(Pattern::BetweenEqRangePattern(pattern_id, literal, end_literal.try_into().unwrap()))
+                    }
+                    _ => Ok(Pattern::GreaterThanEqRangePattern(pattern_id, literal))
+                }
+            }
+            _ => Ok(Pattern::IntLiteralPattern(pattern_id, literal))
         }
     }
 
