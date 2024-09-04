@@ -1,4 +1,7 @@
+use indexmap::IndexMap;
 use std::error::Error;
+
+use crate::semantics::symbol_table::SymbolTable;
 
 use super::errors::ParsingError;
 
@@ -15,12 +18,17 @@ pub enum SimpleType {
     Array(Box<Type>, usize), // inner type, array size
     Iterator(Box<Type>), // inner type
     Function(Box<Type>, Vec<Type>), // return type, vec of params
+    // name of the enum, hashmap of names of variants to their members, which are composed of a 
+    // member number used to construct an instance of the enum of that member, and a hashmaps of 
+    // data members to their types, and finally, an option to denote which, if any, variant this
+    // enum type is of
+    Enum(String, IndexMap<String, IndexMap<String, Type>>, Option<String>),
     IOMonad
 }
 
 
 impl SimpleType {
-    pub fn from_string(src: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn from_string(src: &str, symbol_table: &SymbolTable) -> Result<Self, Box<dyn Error>> {
         Ok(match src {
             "i32" => Self::I32,
             "i64" => Self::I64,
@@ -30,7 +38,12 @@ impl SimpleType {
             "void" => Self::Void,
             "bool" => Self::Bool,
             "IO" => Self::IOMonad,
-            name => return Err(Box::new(ParsingError::InvalidTypeName(name.to_owned())))
+            name => {
+                match symbol_table.get(&name.to_owned()) {
+                    Some(t) => t.get_type().basic_type,
+                    None => return Err(Box::new(ParsingError::InvalidTypeName(name.to_owned()))) 
+                }
+            }
         })
     }
 
@@ -57,7 +70,9 @@ impl SimpleType {
                 "std::function<{}({})>",
                 return_type.as_ctype_str(),
                 params.iter().map(|p| p.as_ctype_str()).collect::<Vec<String>>().join(", ")
-            )
+            ),
+
+            Self::Enum(name, _, _) => name.to_string()
         }
     }
 
@@ -90,13 +105,8 @@ impl SimpleType {
         match &self {
             Self::Iterator(self_inner) => {
                 match &other {
-                    Self::Iterator(other_inner) | Self::Array(other_inner, _) => {
-                        if self_inner.is_compatible_with(&other_inner) {
-                            return true;
-                        }
-        
-                        false
-                    }
+                    Self::Iterator(other_inner) | Self::Array(other_inner, _) => 
+                        self_inner.is_compatible_with(&other_inner),
 
                     _ => false
                 }
@@ -104,18 +114,21 @@ impl SimpleType {
 
             Self::Array(self_inner, self_size) => {
                 match &other {
-                    Self::Array(other_inner, other_size) => {
-                        if self_inner.is_compatible_with(&other_inner) && self_size == other_size {
-                            return true;
-                        }
-        
-                        false
-                    }
-
+                    Self::Array(other_inner, other_size) => 
+                        self_inner.is_compatible_with(&other_inner) && self_size == other_size,
+                    
                     _ => false
                 }
 
             }
+
+            Self::Enum(self_name, _, _) => {
+                match other {
+                    Self::Enum(other_name, _, _) => self_name == other_name,
+                    _ => false
+                }
+            }
+
             _ => false
         }
     }
@@ -153,8 +166,8 @@ pub struct Type {
 
 
 impl Type {
-    pub fn new_str(basic_type: String, linear: bool, generics: Vec<Type>) -> Result<Self, Box<dyn Error>> {
-        let basic_type = SimpleType::from_string(&basic_type)?;
+    pub fn new_str(basic_type: String, linear: bool, generics: Vec<Type>, context: &SymbolTable) -> Result<Self, Box<dyn Error>> {
+        let basic_type = SimpleType::from_string(&basic_type, context)?;
         let monadic: bool = match basic_type {
             SimpleType::IOMonad => true,
             _ => false

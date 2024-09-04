@@ -1,24 +1,84 @@
-//! This library is for typechecking expressions and function bodies according to Skopje's typing
-//! system - it does not concern itself with computational types.
-//! 
-//! Uses [`TypeField`] to steadily narrow down the possible types and expression may have and then,
-//! at the end, will pick the best if it is not clear. If at any point the type field for an
-//! expression is empty, then no progress can be made and the expression has a type error (which is
-//! implemented as [`TypeError`]).
+//! # Skopje Typechecking Library
+//!
+//! This library provides tools for typechecking expressions and function bodies according to
+//! Skopje's type system. It focuses on ensuring that expressions conform to expected types and 
+//! does not concern itself with computational or runtime types.
+//!
+//! The library uses the [`TypeField`] to progressively narrow down the possible types an expression
+//! may have, and ultimately selects the most appropriate type if multiple are possible. If at any 
+//! point the type field for an expression becomes empty, a type error is raised, indicating that 
+//! the expression is not well-typed according to the Skopje type system. This error is represented 
+//! by the [`TypeError`] type.
+//!
+//! ## Key Functions
+//!
+//! - [`get_expr_type`]: Determines the type of a given expression within a specific context.
+//! - [`get_l_expr_type`]: Determines the type of an l-value expression, typically an identifier 
+//!    or array indexing operation.
+//! - [`get_array_inner_type`]: Retrieves the inner type of an array or iterable.
+//! - [`is_constexpr`]: Checks if an expression is a constant expression, which can be evaluated 
+//!    at compile time.
+//! - [`fold_constexpr_index`]: Folds a constant expression into a specific index value.
+//!
+//! ## Modules and Dependencies
+//!
+//! This module depends on the following components from the broader codebase:
+//!
+//! - `parser::parsing`: Provides the `SyntaxNode` and `SyntaxTree` types, which represent 
+//!    parsed expressions and function bodies.
+//! - `parser::types`: Provides the `Type` and `SimpleType` types, which represent the possible 
+//!    types in the Skopje type system.
+//! - `errors`: Provides the `TypeError` type, used to represent typechecking errors.
+//! - `symbol_table`: Provides the `SymbolTable` and `SymbolType` types, used to manage symbols 
+//!    and their types in a given scope.
+//!
+//! ## Example Usage
+//!
+//! The functions in this module are typically used during the semantic analysis phase of a 
+//! compiler, where the goal is to ensure that all expressions and function bodies are well-typed 
+//! according to the rules of the Skopje type system.
+//!
+//! ```rust
+//! use skopje::typechecker::get_expr_type;
+//! use skopje::symbol_table::SymbolTable;
+//! use skopje::parser::parsing::SyntaxTree;
+//!
+//! let syntax_tree = ...;  // Assume this is provided from the parser
+//! let symbol_table = SymbolTable::new(None);  // Create a new symbol table with no parent
+//!
+//! match get_expr_type(&syntax_tree, &symbol_table) {
+//!     Ok(expr_type) => println!("Expression type: {:?}", expr_type),
+//!     Err(e) => eprintln!("Type error: {:?}", e),
+//! }
+//! ```
 use std::error::Error;
 
 use crate::parser::parsing::{SyntaxNode, SyntaxTree};
 use crate::parser::types::{Type, SimpleType};
-use crate::Context;
 
 use super::errors::TypeError;
+use super::symbol_table::{SymbolTable, SymbolType};
 
 
-pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<dyn Error>> {
+/// Determines the type of a given expression within a specific context.
+///
+/// This function recursively evaluates the type of an expression by examining its syntax tree and
+/// resolving the types of sub-expressions. If the expression cannot be resolved to a single type,
+/// or if there is a type error, the function returns an error.
+///
+/// # Arguments
+///
+/// * `expr` - A reference to the `SyntaxTree` representing the expression.
+/// * `context` - A reference to the `SymbolTable` providing the current scope's symbol information.
+///
+/// # Returns
+///
+/// A `Result` containing the resolved `Type` of the expression, or an error if the type cannot be
+/// determined.
+pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
     match &expr.node {
         SyntaxNode::BinaryOperation(op, l, r) => match op.as_str() {
             ".." => {
-                println!("Here...");
                 let left_type = get_expr_type(l, context)?;
                 let (left_value, right_value) = (fold_constexpr_index(l), fold_constexpr_index(r));
                 Ok(Type::from_basic(SimpleType::Array(Box::new(left_type), usize::abs_diff(left_value, right_value))))
@@ -44,8 +104,8 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
         SyntaxNode::IntLiteral(_) => Ok(Type::new(SimpleType::I64, false, vec![])),
         SyntaxNode::StringLiteral(_) => Ok(Type::new(SimpleType::Str, false, vec![])),
         SyntaxNode::BoolLiteral(_) => Ok(Type::new(SimpleType::Bool, false, vec![])),
-        SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id).unwrap().0.clone()),
         SyntaxNode::ParenExpr(expr) => get_expr_type(expr, context),
+        SyntaxNode::Identifier(id) => Ok(context.get(id).unwrap().category.get_type()),
 
         SyntaxNode::TupleIndexingOperation(index, expr) => {
             match get_expr_type(expr, context).unwrap().basic_type {
@@ -68,12 +128,12 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
 
         SyntaxNode::FunctionCall(id, args) 
         | SyntaxNode::FunctionCallStmt(id, args)=> {
-            let (func_return_type, param_types) = match context.verify_function(&id) {
-                Some(f) => match f.basic_type {
+            let (func_return_type, param_types) = match context.get(&id).unwrap().category {
+                SymbolType::Function(_, func_type) => match func_type.basic_type {
                     SimpleType::Function(rt, params) => (*rt, params),
                     other => panic!("Expected function, got {:?}", other)
-                },
-                None => panic!("Identifier {} is not valid in this context", id)
+                }
+                _ => panic!()
             };
 
             // check that there are the correct number of arguments for the given function
@@ -109,6 +169,14 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<d
             Ok(Type::new(SimpleType::Array(Box::new(inner_type.clone()), elems.len()), false, vec![]))
         }
 
+        SyntaxNode::EnumInstantiation(enum_type, variant_name, _) => match enum_type.basic_type.clone() {
+            SimpleType::Enum(enum_name, variants, _) => {
+                assert!(variants.contains_key(variant_name));
+                Ok(Type::from_basic(SimpleType::Enum(enum_name, variants, Some(variant_name.to_owned()))))
+            }
+            _ => panic!()
+        }
+
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }
@@ -142,7 +210,7 @@ fn get_unary_operation_type(op: String, arg: Type) -> Result<Type, Box<dyn Error
 }
 
 
-fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context: &Context) -> Result<Type, Box<dyn Error>> {
+fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
     let l_type: Type = get_expr_type(l, context)?;
     let r_type: Type = get_expr_type(r, context)?;
     match op.as_str() {
@@ -200,19 +268,43 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
 } 
 
 
-/// Gets the type of an l-expression, which is composed of an identifier and potentially any
-/// number of array index operations.
-pub fn get_l_expr_type(expr: &SyntaxTree, context: &Context) -> Result<Type, Box<dyn Error>> {
+/// Determines the type of an l-value expression, such as an identifier or array indexing operation.
+///
+/// This function is used specifically for expressions that can appear on the left-hand side of an
+/// assignment, such as variables or elements of an array.
+///
+/// # Arguments
+///
+/// * `expr` - A reference to the `SyntaxTree` representing the l-expression.
+/// * `symbol_table` - A reference to the `SymbolTable` providing the current scope's symbol 
+/// information.
+///
+/// # Returns
+///
+/// A `Result` containing the resolved `Type` of the l-expression, or an error if the type cannot be
+/// determined.
+pub fn get_l_expr_type(expr: &SyntaxTree, symbol_table: &SymbolTable) -> Result<Type, Box<dyn Error>> {
     match &expr.node {
-        SyntaxNode::Identifier(id) => Ok(context.valid_identifiers.get(id.as_str()).unwrap().0.clone()),
-        SyntaxNode::ArrayIndexingOperation(_, expr) => Ok(get_array_inner_type(&get_l_expr_type(expr, context).unwrap())),
+        SyntaxNode::Identifier(id) => Ok(symbol_table.get(id).unwrap().get_type()),
+        SyntaxNode::ArrayIndexingOperation(_, expr) => Ok(get_array_inner_type(&get_l_expr_type(expr, symbol_table).unwrap())),
         other => panic!("Invalid node {:?} in l-expression", other)
     }
 }
 
 
+/// Retrieves the inner type of an array or iterable type.
+///
+/// This function extracts the type of the elements contained within an array or iterator. It is
+/// useful for operations that need to manipulate or access the elements of a collection.
+///
+/// # Arguments
+///
+/// * `array` - A reference to the `Type` representing the array or iterable.
+///
+/// # Returns
+///
+/// The `Type` of the elements contained within the array or iterable.
 pub fn get_array_inner_type(array: &Type) -> Type {
-    println!("Here is: {:?}", array);
     match &array.basic_type {
         SimpleType::Array(inner, _) 
         | SimpleType::Iterator(inner) => *inner.clone(),
@@ -221,6 +313,19 @@ pub fn get_array_inner_type(array: &Type) -> Type {
 }
 
 
+/// Checks if an expression is a constant expression, which can be evaluated at compile time.
+///
+/// A constant expression is one that can be fully resolved without runtime information. This 
+/// function is typically used to verify whether certain operations or optimizations can be applied 
+/// at compile time.
+///
+/// # Arguments
+///
+/// * `expr` - A reference to the `SyntaxTree` representing the expression.
+///
+/// # Returns
+///
+/// `true` if the expression is a constant expression, otherwise `false`.
 pub fn is_constexpr(expr: &SyntaxTree) -> bool {
     match &expr.node {
         SyntaxNode::BinaryOperation(_, l, r) => is_constexpr(&l.clone()) && is_constexpr(&r.clone()),
@@ -238,6 +343,23 @@ pub fn is_constexpr(expr: &SyntaxTree) -> bool {
 }
 
 
+/// Folds a constant expression into a specific index value.
+///
+/// This function reduces a constant expression to its corresponding index value, which is typically
+/// used for operations like array indexing or tuple indexing.
+///
+/// # Arguments
+///
+/// * `expr` - A reference to the `SyntaxTree` representing the constant expression.
+///
+/// # Returns
+///
+/// The index value as a `usize`.
+///
+/// # Panics
+///
+/// This function will panic if the expression is not a valid constant expression or cannot be 
+/// reduced to a single index value.
 pub fn fold_constexpr_index(expr: &SyntaxTree) -> usize {
     match expr.node {
         SyntaxNode::IntLiteral(i) => i as usize,
@@ -299,6 +421,13 @@ mod tests {
     }
 
 
+    #[test]
+    fn test_basic_enum() {
+        let scanner = Scanner::new("tests/test_basic_enum.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
 
     #[test]
     #[should_panic]
@@ -349,6 +478,15 @@ mod tests {
     #[should_panic]
     fn test_for_loop_inconsistent_iter_type() {
         let scanner = Scanner::new("tests/test_for_loop_inconsistent_iter_type.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_enum_without_variant() {
+        let scanner = Scanner::new("tests/test_enum_without_variant.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }

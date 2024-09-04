@@ -91,6 +91,49 @@ impl Scanner {
     }
 
 
+    /// Creates a new scanner instance from a given source string and scans the entire contents to 
+    /// produce a vector of tokens.
+    ///
+    /// This function initializes a scanner with the provided source code as a string and then 
+    /// processes the source to tokenize it. The result is a fully initialized scanner containing 
+    /// the tokens generated from the source code.
+    ///
+    /// # Arguments
+    ///
+    /// * `source` - A `String` containing the source code to be scanned and tokenized.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing the initialized scanner if the process is successful, or an error 
+    /// wrapped in a `Box<dyn Error>` if something goes wrong during scanning.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let source_code = "let x = 42;".to_string();
+    /// let scanner = MyScanner::from_str(source_code).expect("Failed to initialize scanner");
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error if the source code cannot be properly scanned or tokenized. 
+    /// The specific error type depends on the implementation of the `scan_file` method used 
+    /// internally.
+    #[allow(unused)]
+    pub fn from_str(source: String) -> Result<Self, Box<dyn Error>> {
+        let mut scanner: Self = Self {
+            source,
+            tokens: Vec::new(),
+            start: 0, 
+            current: 0, 
+            line: 1
+        };
+
+        scanner.scan_file();
+        Ok(scanner)
+    }
+
+
     /// Lexically analyses the code in `self.source` and puts the tokens into `self.tokens`.
     /// 
     /// Goes through the source code line-by-line and passes each line to `self.scan_line()` for
@@ -327,6 +370,9 @@ impl Scanner {
                 if let Some('=') = self.peek(line, 0) {
                     self.advance();
                     return Ok(TokenType::DoubleEqual);
+                } else if let Some('>') = self.peek(line, 0) {
+                    self.advance();
+                    return Ok(TokenType::ThickArrow);
                 } else {
                     return Ok(TokenType::Equal);
                 }
@@ -387,8 +433,10 @@ impl Scanner {
                             "in" => return Ok(TokenType::InKeyword),
                             "let" => return Ok(TokenType::LetKeyword),
                             "do" => return Ok(TokenType::DoKeyword),
+                            "enum" => return Ok(TokenType::EnumKeyword),
                             "true" => return Ok(TokenType::BoolLiteral(true)),
                             "false" => return Ok(TokenType::BoolLiteral(false)),
+                            "match" => return Ok(TokenType::MatchKeyword),
                             // is not a keyword, and therefore is an identifier
                             _ => return Ok(TokenType::Identifier(token_text.to_owned()))
                         }
