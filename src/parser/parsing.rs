@@ -159,6 +159,7 @@ impl SyntaxTree {
 /// of the queue and organized into the AST.
 pub struct Parser {
     tokens: VecDeque<Token>,
+    current_return_type: Option<Type>,
     symbol_table_root: Rc<RefCell<SymbolTable>>,
     current_symbol_table: Rc<RefCell<SymbolTable>>,
     auxilliary_var_index: usize
@@ -174,7 +175,8 @@ impl Parser {
             tokens: VecDeque::from(tokens),
             symbol_table_root: symbol_table_root.clone(),
             current_symbol_table: symbol_table_root,
-            auxilliary_var_index: 0
+            auxilliary_var_index: 0,
+            current_return_type: None
         };
 
         let print_type = Type::from_basic(
@@ -270,6 +272,7 @@ impl Parser {
             assert_token_type!(arrow, Arrow);
 
             let return_type = self.parse_type().unwrap();
+            self.current_return_type = Some(return_type.clone());
 
             let open_body = self.tokens.pop_front().unwrap();
             assert_token_type!(open_body, OpenCurly);
@@ -1002,8 +1005,20 @@ impl Parser {
     }
 
 
+    /// Parses a return statement after the return keyword has been popped from the queue of tokens
+    /// 
+    /// Validates that the return type is correct for the function it is returning from.
     fn parse_return(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
-        let expr = self.parse_expression()?;
+        let expr: SyntaxTree = self.parse_expression()?;
+        let expr_type: Type = get_expr_type(&expr, &self.current_symbol_table.borrow())?;
+        // check that the returned value is type-compatible with the return type of the function
+        match &self.current_return_type {
+            Some(t) => if !expr_type.is_compatible_with(&t) {
+                return Err(Box::new(ParsingError::ReturnTypeMismatch(expr_type, t.clone(), line_num, col_num)))
+            }
+
+            None => panic!()
+        }
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, Semicolon);
@@ -1268,19 +1283,6 @@ impl Parser {
                 Box::new(self.parse_right_assoc_unary()?),
             ), next_token.line_number, next_token.col_number)),
 
-            // casting the rhs to the type in the lhs
-            TokenType::OpenParen => {
-                let cast_type: Type = self.parse_type().unwrap();
-                let next_token = self.tokens.pop_front().unwrap();
-                assert_token_type!(next_token, CloseParen);
-                let rhs = self.parse_right_assoc_unary()?;
-                Ok(SyntaxTree::new(SyntaxNode::TypeCast(
-                    cast_type, 
-                    get_expr_type(&rhs, &self.current_symbol_table.borrow()).unwrap(),
-                    Box::new(rhs)
-                ), next_token.line_number, next_token.col_number))
-            }
-
             // End of this level of precedence
             _ => {
                 self.tokens.push_front(next_token);
@@ -1367,7 +1369,29 @@ impl Parser {
 
 
     fn parse_range(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        parse_binary_operator!(self, parse_factor, DoubleDot => "..")
+        parse_binary_operator!(self, parse_cast, DoubleDot => "..")
+    }
+
+
+    fn parse_cast(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        let mut root: SyntaxTree = self.parse_factor()?;
+        let (root_line, root_col) = (root.start_line, root.start_index);
+
+        let next_token = self.tokens.pop_front().unwrap();
+        match next_token.token_type {
+            TokenType::AsKeyword => {
+                let right: Type = self.parse_type()?;
+                let root_type: Type = get_expr_type(&root, &self.current_symbol_table.borrow())?;
+                root = SyntaxTree::new(SyntaxNode::TypeCast(
+                    right, root_type, Box::new(root)
+                ), root_line, root_col);
+            }
+
+            // End of this level of precedence
+            _ => self.tokens.push_front(next_token)
+        }
+
+        Ok(root)
     }
 
 
@@ -1575,6 +1599,8 @@ impl Parser {
 
 
     fn parse_enumeration(&mut self, start_line: usize, start_index: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        self.current_return_type = None;
+
         let next_token = self.tokens.pop_front().unwrap();
         let identifier = match next_token.token_type {
             TokenType::Identifier(id) => id,
@@ -1662,5 +1688,21 @@ impl Parser {
             SyntaxNode::EnumVariant(identifier, params), 
             next_token.line_number, next_token.col_number
         ))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::Scanner;
+
+    use super::Parser;
+
+    #[test]
+    #[should_panic]
+    fn test_incorrect_return_type() {
+        let scanner = Scanner::new("tests/test_incorrect_return_type.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
     }
 }

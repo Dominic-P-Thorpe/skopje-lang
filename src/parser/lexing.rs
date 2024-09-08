@@ -437,6 +437,7 @@ impl Scanner {
                             "true" => return Ok(TokenType::BoolLiteral(true)),
                             "false" => return Ok(TokenType::BoolLiteral(false)),
                             "match" => return Ok(TokenType::MatchKeyword),
+                            "as" => return Ok(TokenType::AsKeyword),
                             // is not a keyword, and therefore is an identifier
                             _ => return Ok(TokenType::Identifier(token_text.to_owned()))
                         }

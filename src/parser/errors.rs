@@ -1,6 +1,6 @@
 use std::{fmt, error};
 
-use super::token::{Token, TokenType};
+use super::{token::{Token, TokenType}, types::Type};
 
 
 #[derive(Debug, Clone)]
@@ -59,7 +59,8 @@ pub enum ParsingError {
     // token encountered, token expected
     UnexpectedToken(Token, ExpectedToken),
     MissingSemicolon(usize),
-    InvalidTypeName(String)
+    InvalidTypeName(String),
+    ReturnTypeMismatch(Type, Type, usize, usize)
 }
 
 
@@ -69,7 +70,9 @@ impl fmt::Display for ParsingError {
             Self::UnexpectedToken(token, expected) => write!(f, "Unexpected token {} at line {}, col {}, expected {:?}", 
                 format!("{:?}", token.token_type), token.line_number, token.col_number + 1, expected),
             Self::MissingSemicolon(line) => write!(f, "Missing semicolon on line {}", line),
-            Self::InvalidTypeName(name) => write!(f, "{} is not a valid type name", name)
+            Self::InvalidTypeName(name) => write!(f, "{} is not a valid type name", name),
+            Self::ReturnTypeMismatch(got, expected, line, col) => 
+                write!(f, "Type mismatch at line {}, col {}, expected {:?}, got {:?}", line, col, expected.basic_type, got.basic_type)
         }
     }
 }
