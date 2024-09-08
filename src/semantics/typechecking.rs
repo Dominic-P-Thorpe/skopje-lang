@@ -177,6 +177,15 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             _ => panic!()
         }
 
+        SyntaxNode::TypeCast(new_type, old_type, _) => {
+            assert!(
+                old_type.is_numeric() && new_type.is_numeric() 
+                || old_type == new_type 
+                || old_type.is_numeric() && new_type.basic_type == SimpleType::Bool
+                || new_type.is_numeric() && old_type.basic_type == SimpleType::Bool
+            );
+            Ok(new_type.clone())
+        },
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }

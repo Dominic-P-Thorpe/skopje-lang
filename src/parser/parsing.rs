@@ -109,6 +109,8 @@ pub enum SyntaxNode {
     BinaryOperation(String, Box<SyntaxTree>, Box<SyntaxTree>),
     RightAssocUnaryOperation(String, Box<SyntaxTree>),
     LeftAssocUnaryOperation(String, Box<SyntaxTree>),
+    // target type, source type, expression to cast
+    TypeCast(Type, Type, Box<SyntaxTree>),
     TupleIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
     // index to get, stmt to index
     ArrayIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
@@ -1265,6 +1267,19 @@ impl Parser {
                 "~".to_owned(),
                 Box::new(self.parse_right_assoc_unary()?),
             ), next_token.line_number, next_token.col_number)),
+
+            // casting the rhs to the type in the lhs
+            TokenType::OpenParen => {
+                let cast_type: Type = self.parse_type().unwrap();
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, CloseParen);
+                let rhs = self.parse_right_assoc_unary()?;
+                Ok(SyntaxTree::new(SyntaxNode::TypeCast(
+                    cast_type, 
+                    get_expr_type(&rhs, &self.current_symbol_table.borrow()).unwrap(),
+                    Box::new(rhs)
+                ), next_token.line_number, next_token.col_number))
+            }
 
             // End of this level of precedence
             _ => {

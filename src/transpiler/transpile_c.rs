@@ -632,6 +632,9 @@ impl Transpiler {
                 _ => panic!()
             }
 
+            SyntaxNode::TypeCast(new_type, old_type, rhs) => 
+                Ok(format!("({}){}", new_type.as_ctype_str(), self.transpile_typed_expr_c(rhs, old_type)?)),
+
             other => panic!("{:?} is not a valid expression node!", other)
         }
     }
