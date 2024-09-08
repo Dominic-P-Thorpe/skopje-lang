@@ -76,7 +76,7 @@ pub enum Pattern {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SyntaxNode {
     Program(Box<SyntaxTree>),
     // name, variants
@@ -139,6 +139,13 @@ pub struct SyntaxTree {
     pub node: SyntaxNode,
     pub start_index: usize,
     pub start_line: usize
+}
+
+
+impl PartialEq for SyntaxTree {
+    fn eq(&self, other: &Self) -> bool {
+        self.node == other.node
+    }
 }
 
 

@@ -143,6 +143,14 @@ pub struct SymbolTable {
     pub children: Vec<Rc<RefCell<SymbolTable>>>,
 }
 
+
+impl PartialEq for SymbolTable {
+    fn eq(&self, other: &Self) -> bool {
+        self.table == other.table && self.children == other.children
+    }
+}
+
+
 impl SymbolTable {
     /// Creates a new `SymbolTable` with an optional parent.
     ///
