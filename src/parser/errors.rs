@@ -72,7 +72,7 @@ impl fmt::Display for ParsingError {
             Self::MissingSemicolon(line) => write!(f, "Missing semicolon on line {}", line),
             Self::InvalidTypeName(name) => write!(f, "{} is not a valid type name", name),
             Self::ReturnTypeMismatch(got, expected, line, col) => 
-                write!(f, "Type mismatch at line {}, col {}, expected {:?}, got {:?}", line, col, got.basic_type, expected.basic_type)
+                write!(f, "Type mismatch at line {}, col {}, expected {:?}, got {:?}", line, col, expected.basic_type, got.basic_type)
         }
     }
 }

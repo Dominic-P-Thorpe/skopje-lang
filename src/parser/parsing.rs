@@ -1283,19 +1283,6 @@ impl Parser {
                 Box::new(self.parse_right_assoc_unary()?),
             ), next_token.line_number, next_token.col_number)),
 
-            // casting the rhs to the type in the lhs
-            TokenType::OpenParen => {
-                let cast_type: Type = self.parse_type().unwrap();
-                let next_token = self.tokens.pop_front().unwrap();
-                assert_token_type!(next_token, CloseParen);
-                let rhs = self.parse_right_assoc_unary()?;
-                Ok(SyntaxTree::new(SyntaxNode::TypeCast(
-                    cast_type, 
-                    get_expr_type(&rhs, &self.current_symbol_table.borrow()).unwrap(),
-                    Box::new(rhs)
-                ), next_token.line_number, next_token.col_number))
-            }
-
             // End of this level of precedence
             _ => {
                 self.tokens.push_front(next_token);
@@ -1382,7 +1369,29 @@ impl Parser {
 
 
     fn parse_range(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        parse_binary_operator!(self, parse_factor, DoubleDot => "..")
+        parse_binary_operator!(self, parse_cast, DoubleDot => "..")
+    }
+
+
+    fn parse_cast(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        let mut root: SyntaxTree = self.parse_factor()?;
+        let (root_line, root_col) = (root.start_line, root.start_index);
+
+        let next_token = self.tokens.pop_front().unwrap();
+        match next_token.token_type {
+            TokenType::AsKeyword => {
+                let right: Type = self.parse_type()?;
+                let root_type: Type = get_expr_type(&root, &self.current_symbol_table.borrow())?;
+                root = SyntaxTree::new(SyntaxNode::TypeCast(
+                    right, root_type, Box::new(root)
+                ), root_line, root_col);
+            }
+
+            // End of this level of precedence
+            _ => self.tokens.push_front(next_token)
+        }
+
+        Ok(root)
     }
 
 
@@ -1679,5 +1688,21 @@ impl Parser {
             SyntaxNode::EnumVariant(identifier, params), 
             next_token.line_number, next_token.col_number
         ))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::Scanner;
+
+    use super::Parser;
+
+    #[test]
+    #[should_panic]
+    fn test_incorrect_return_type() {
+        let scanner = Scanner::new("tests/test_incorrect_return_type.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
     }
 }

@@ -62,6 +62,7 @@ pub enum TokenType {
     InKeyword,
     EnumKeyword,
     MatchKeyword,
+    AsKeyword,
     StrLiteral(String),
     IntLiteral(u64),
     BoolLiteral(bool),
