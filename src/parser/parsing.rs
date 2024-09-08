@@ -1013,7 +1013,10 @@ impl Parser {
         let expr_type: Type = get_expr_type(&expr, &self.current_symbol_table.borrow())?;
         // check that the returned value is type-compatible with the return type of the function
         match &self.current_return_type {
-            Some(t) => assert!(expr_type.is_compatible_with(&t)),
+            Some(t) => if !expr_type.is_compatible_with(&t) {
+                return Err(Box::new(ParsingError::ReturnTypeMismatch(expr_type, t.clone(), line_num, col_num)))
+            }
+
             None => panic!()
         }
 
