@@ -1,5 +1,5 @@
 use indexmap::IndexMap;
-use std::error::Error;
+use std::{collections::HashMap, error::Error};
 
 use crate::semantics::symbol_table::SymbolTable;
 
@@ -20,9 +20,9 @@ pub enum SimpleType {
     Function(Box<Type>, Vec<Type>), // return type, vec of params
     // name of the enum, hashmap of names of variants to their members, which are composed of a 
     // member number used to construct an instance of the enum of that member, and a hashmaps of 
-    // data members to their types, and finally, an option to denote which, if any, variant this
-    // enum type is of
-    Enum(String, IndexMap<String, IndexMap<String, Type>>, Option<String>),
+    // data members to their types, an option to denote which, if any, variant this enum type is of,
+    // a hashmap of behvaiour names to the behaviour, and a vector of traits the enum  inherits
+    Enum(String, IndexMap<String, IndexMap<String, Type>>, Option<String>, HashMap<String, Type>, Vec<Type>),
     IOMonad
 }
 
@@ -72,7 +72,7 @@ impl SimpleType {
                 params.iter().map(|p| p.as_ctype_str()).collect::<Vec<String>>().join(", ")
             ),
 
-            Self::Enum(name, _, _) => name.to_string()
+            Self::Enum(name, _, _, _, _) => name.to_string()
         }
     }
 
@@ -122,9 +122,9 @@ impl SimpleType {
 
             }
 
-            Self::Enum(self_name, _, _) => {
+            Self::Enum(self_name, _, _, _, _) => {
                 match other {
-                    Self::Enum(other_name, _, _) => self_name == other_name,
+                    Self::Enum(other_name, _, _, _, _) => self_name == other_name,
                     _ => false
                 }
             }

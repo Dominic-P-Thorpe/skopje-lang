@@ -51,6 +51,7 @@
 //!     Err(e) => eprintln!("Type error: {:?}", e),
 //! }
 //! ```
+use std::collections::HashMap;
 use std::error::Error;
 
 use crate::parser::parsing::{SyntaxNode, SyntaxTree};
@@ -170,9 +171,9 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
         }
 
         SyntaxNode::EnumInstantiation(enum_type, variant_name, _) => match enum_type.basic_type.clone() {
-            SimpleType::Enum(enum_name, variants, _) => {
+            SimpleType::Enum(enum_name, variants, _, _, _) => {
                 assert!(variants.contains_key(variant_name));
-                Ok(Type::from_basic(SimpleType::Enum(enum_name, variants, Some(variant_name.to_owned()))))
+                Ok(Type::from_basic(SimpleType::Enum(enum_name, variants, Some(variant_name.to_owned()), HashMap::new(), vec![])))
             }
             _ => panic!()
         }

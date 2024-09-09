@@ -316,7 +316,7 @@ impl Transpiler {
         indent: usize
     ) -> Result<String, Box<dyn Error>> {
         match match_expr_type.basic_type {
-            SimpleType::Enum(_, _, _) =>
+            SimpleType::Enum(_, _, _, _, _) =>
                 Ok(format!(
                     "{0}else {{\n\t{0}auto {1} = {2}.getValue();\n{3}\n\t{0}\n{0}}}", 
                     "    ".repeat(indent),
@@ -507,7 +507,7 @@ impl Transpiler {
     /// of the parameter
     fn transpile_enum_data_params(&mut self, inner_patterns: &Vec<Pattern>, enum_type: &Type, variant_name: &str, indent: usize) -> String {
         let enum_variants = match &enum_type.basic_type {
-            SimpleType::Enum(_, variants, _) => variants.get(variant_name).unwrap(),
+            SimpleType::Enum(_, variants, _, _, _) => variants.get(variant_name).unwrap(),
             other => panic!("Expected enum, got {:?}", other)
         };
 
@@ -617,7 +617,7 @@ impl Transpiler {
             }
 
             SyntaxNode::EnumInstantiation(enum_type, variant, args) => match &enum_type.basic_type {
-                SimpleType::Enum(name, variants, _) => {
+                SimpleType::Enum(name, variants, _, _, _) => {
                     let variant_data: &IndexMap<String, Type> = variants.get(variant).unwrap();
                     let args_str = args.iter()
                                        .map(|(_, v)| self.transpile_typed_expr_c(&v, &Type::from_basic(SimpleType::I32)).unwrap())
