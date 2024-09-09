@@ -208,4 +208,19 @@ impl SymbolTable {
         parent.borrow_mut().children.push(Rc::clone(&child));
         child
     }
+
+
+    pub fn replace_symbol(&mut self, old_name: &str, new_symbol: Symbol) {
+        match self.table.get(old_name) {
+            Some(_) => {
+                self.table.insert(old_name.to_string(), new_symbol);
+                ()
+            }
+
+            None => match &self.parent {
+                Some(p) => p.upgrade().unwrap().borrow_mut().replace_symbol(old_name, new_symbol),
+                None => (),
+            },
+        };
+    }
 }

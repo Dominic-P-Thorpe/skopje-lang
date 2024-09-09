@@ -151,6 +151,16 @@ impl SimpleType {
             _ => false
         }
     }
+
+
+    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Type) {
+        match self {
+            Self::Enum(_, _, _, items, _) => {
+                items.insert(behaviour_name, behaviour);
+            }
+            _ => panic!()
+        }
+    }
 }
 
 
@@ -245,6 +255,11 @@ impl Type {
 
     pub fn is_compatible_with(&self, other: &Self) -> bool {
         self.basic_type.is_compatible_with(&other.basic_type)
+    }
+
+
+    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Type) {
+        self.basic_type.add_behaviour(behaviour_name, behaviour);
     }
 }
 

@@ -1695,17 +1695,57 @@ impl Parser {
     /// Parses an enum implementation after the "impl" keyword has already been consumed
     fn parse_enum_impl(&mut self) -> Result<(), Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
-        let _enum_name = match next_token.token_type {
+        let enum_name = match next_token.token_type {
             TokenType::Identifier(id) => id,
             _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
         };
+        let enum_name = enum_name.as_str();
+
+        let mut enum_type = self.current_symbol_table.borrow().get(&enum_name.to_owned()).unwrap().get_type();
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenCurly);
 
-        let next_token = self.tokens.pop_front().unwrap();
-        assert_token_type!(next_token, CloseCurly);
+        // create a new scope in the symbol table for the impl block
+        self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
 
+        let mut behaviours: Vec<(String, Type)> = vec![];
+        loop {
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::CloseCurly => break, // end of impl  block
+                TokenType::FnKeyword => {
+                    let function = self.parse_function(next_token.line_number, next_token.col_number)?;
+                    match function.node {
+                        SyntaxNode::Function(name, _, _, _) => {
+                            let function_type = self.current_symbol_table.borrow().get(&name).unwrap().get_type();
+                            behaviours.push((name, function_type));
+                        }
+                        _ => panic!()
+                    }
+                },
+
+                _ => panic!()
+            }
+        }
+
+        for (name, function_type) in behaviours {
+            enum_type.add_behaviour(name, function_type);
+        }
+
+        self.current_symbol_table.borrow_mut().replace_symbol(
+            enum_name, 
+            Symbol::new(SymbolType::EnumeraionType(enum_name.to_owned(), enum_type), 
+            0, 0)
+        );
+
+        // restore the symbol table to the one from outside the impl block
+        let parent_symbol_table = self.current_symbol_table
+                                                                .borrow()
+                                                                .parent.as_ref()
+                                                                .unwrap()
+                                                                .upgrade().unwrap();
+        self.current_symbol_table = parent_symbol_table;
         Ok(())
     }
 }
