@@ -38,7 +38,6 @@
 //!
 //! This module is typically used in the context of a compiler's symbol resolution phase, but it can also be adapted to other use cases
 //! where nested scopes and symbol management are required.
-
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use std::collections::HashMap;
@@ -141,6 +140,8 @@ pub struct SymbolTable {
     pub parent: Option<Weak<RefCell<SymbolTable>>>,
     /// A vector storing references to the child symbol tables.
     pub children: Vec<Rc<RefCell<SymbolTable>>>,
+    /// If there is a "self", to what does it refer in this scope?
+    pub self_ref: Option<Type>
 }
 
 impl SymbolTable {
@@ -155,9 +156,13 @@ impl SymbolTable {
     /// A reference-counted `Rc<RefCell<SymbolTable>>` pointing to the new symbol table.
     pub fn new(parent: Option<Weak<RefCell<SymbolTable>>>) -> Rc<RefCell<Self>> {
         Rc::new(RefCell::new(SymbolTable {
-            parent,
+            parent: parent.clone(),
             table: HashMap::new(),
             children: vec![],
+            self_ref: match parent {
+                None => None,
+                Some(p) => p.upgrade().unwrap().borrow().self_ref.clone()
+            }
         }))
     }
 

@@ -131,6 +131,7 @@ pub enum SyntaxNode {
     // store the type so that if the type is an std::unique_ptr we know to use std::move when we 
     // want to use it
     Identifier(String),
+    SelfIdentifier,
     // a block of statements represented as a vec, and a pointer to the symbol table of that block
     StmtBlock(Vec<SyntaxTree>, Rc<RefCell<SymbolTable>>)
 }
@@ -1370,7 +1371,12 @@ impl Parser {
 
 
     fn parse_range(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        parse_binary_operator!(self, parse_cast, DoubleDot => "..")
+        parse_binary_operator!(self, parse_dot, DoubleDot => "..")
+    }
+
+
+    fn parse_dot(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        parse_binary_operator!(self, parse_cast, Dot => ".")
     }
 
 
@@ -1403,6 +1409,7 @@ impl Parser {
             TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s), next_token.line_number, next_token.col_number)),
             TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n), next_token.line_number, next_token.col_number)),
             TokenType::BoolLiteral(b) => Ok(SyntaxTree::new(SyntaxNode::BoolLiteral(b), next_token.line_number, next_token.col_number)),
+            TokenType::SelfKeyword => Ok(SyntaxTree::new(SyntaxNode::SelfIdentifier, next_token.line_number, next_token.col_number)),
             TokenType::DoKeyword => self.parse_do_block(),
 
             TokenType::Identifier(id) => {
@@ -1708,6 +1715,7 @@ impl Parser {
 
         // create a new scope in the symbol table for the impl block
         self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
+        self.current_symbol_table.borrow_mut().self_ref = Some(enum_type.clone());
 
         let mut behaviours: Vec<(String, Type)> = vec![];
         loop {
@@ -1716,9 +1724,23 @@ impl Parser {
                 TokenType::CloseCurly => break, // end of impl  block
                 TokenType::FnKeyword => {
                     let function = self.parse_function(next_token.line_number, next_token.col_number)?;
+                    // add the new behaviour function to the list of behaviours available to the 
+                    // value referred to if the programmer uses "self"
                     match function.node {
                         SyntaxNode::Function(name, _, _, _) => {
+                            // get the type of this function from the context
                             let function_type = self.current_symbol_table.borrow().get(&name).unwrap().get_type();
+                            // add the function to the enum's behaviours
+                            match &mut self.current_symbol_table.borrow_mut().self_ref {
+                                Some(self_type) => {
+                                    self_type.add_behaviour(name.clone(), function_type.clone())
+                                }
+                                None => panic!()
+                            };
+
+                            // record all the encountered behaviours in the behaviours array so that
+                            // they can be added to the enum's type in the main symbol table later
+                            // on
                             behaviours.push((name, function_type));
                         }
                         _ => panic!()
@@ -1756,6 +1778,15 @@ mod tests {
     use crate::Scanner;
 
     use super::Parser;
+
+
+    #[test]
+    fn test_basic_enum_impl() {
+        let scanner = Scanner::new("tests/test_basic_enum_impl.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
 
     #[test]
     #[should_panic]
