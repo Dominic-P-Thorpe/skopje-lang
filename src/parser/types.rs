@@ -1,11 +1,11 @@
 use indexmap::IndexMap;
 use std::{collections::HashMap, error::Error};
 
-use crate::semantics::symbol_table::SymbolTable;
+use crate::semantics::symbol_table::{Symbol, SymbolTable};
 
 use super::errors::ParsingError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SimpleType {
     I32,
     I64,
@@ -22,7 +22,7 @@ pub enum SimpleType {
     // member number used to construct an instance of the enum of that member, and a hashmaps of 
     // data members to their types, an option to denote which, if any, variant this enum type is of,
     // a hashmap of behvaiour names to the behaviour, and a vector of traits the enum  inherits
-    Enum(String, IndexMap<String, IndexMap<String, Type>>, Option<String>, HashMap<String, Type>, Vec<Type>),
+    Enum(String, IndexMap<String, IndexMap<String, Type>>, Option<String>, HashMap<String, Symbol>, Vec<Type>),
     IOMonad
 }
 
@@ -153,7 +153,7 @@ impl SimpleType {
     }
 
 
-    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Type) {
+    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Symbol) {
         match self {
             Self::Enum(_, _, _, items, _) => {
                 items.insert(behaviour_name, behaviour);
@@ -165,7 +165,7 @@ impl SimpleType {
 
 
 /// Encodes a type, including the dependencies and linearity, of a value in Skopje. 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Type {
     pub basic_type: SimpleType,
     pub monadic: bool,
@@ -258,7 +258,7 @@ impl Type {
     }
 
 
-    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Type) {
+    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Symbol) {
         self.basic_type.add_behaviour(behaviour_name, behaviour);
     }
 }

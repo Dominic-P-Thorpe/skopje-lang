@@ -58,7 +58,7 @@ use crate::parser::parsing::{SyntaxNode, SyntaxTree};
 use crate::parser::types::{Type, SimpleType};
 
 use super::errors::TypeError;
-use super::symbol_table::{SymbolTable, SymbolType};
+use super::symbol_table::{Symbol, SymbolTable, SymbolType};
 
 
 /// Determines the type of a given expression within a specific context.
@@ -293,12 +293,17 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
 } 
 
 
-fn get_enum_expr_return_type(behaviours: HashMap<String, Type>, tree: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
+fn get_enum_expr_return_type(behaviours: HashMap<String, Symbol>, tree: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
     let mut behaviours = behaviours;
     // println!("Behaviours: {:#?}", behaviours);
     match &tree.node {
-        SyntaxNode::FunctionCall(id, _) => match behaviours.get(id).unwrap().clone().basic_type {
-            SimpleType::Function(return_type, _) => Ok(*return_type),
+        SyntaxNode::FunctionCall(id, _) => match behaviours.get(id).unwrap().clone().category {
+            SymbolType::Behaviour(_, behaviour_type, _) => {
+                match behaviour_type.basic_type {
+                    SimpleType::Function(return_type, _) => Ok(*return_type),
+                    _ => panic!()
+                }
+            },
             _ => panic!()
         }
 

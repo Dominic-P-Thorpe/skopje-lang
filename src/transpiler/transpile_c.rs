@@ -21,11 +21,14 @@
 //! ``` 
 use indexmap::IndexMap;
 use rand::distributions::{Alphanumeric, DistString};
+use std::cell::RefCell;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::rc::Rc;
 
 use crate::parser::types::{Type, SimpleType};
+use crate::semantics::symbol_table::{Symbol, SymbolTable, SymbolType};
 use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type};
 use crate::{Pattern, SyntaxNode, SyntaxTree};
 
@@ -39,6 +42,8 @@ pub struct Transpiler {
     functions_source: Vec<String>,
     // Used to name auxilliary functions created by the compiler, not the programmer
     auxilliary_func_index: usize,
+    // The symbol table for this scope in the program
+    symbol_table: Rc<RefCell<SymbolTable>>,
     /// The AST to be translated into C
     ast: SyntaxTree
 }
@@ -63,7 +68,8 @@ impl Transpiler {
             file: OpenOptions::new().create(true).truncate(true).write(true).open(target).unwrap(), 
             functions_source: vec![],
             auxilliary_func_index: 0,
-            ast: source 
+            ast: source,
+            symbol_table: SymbolTable::new(None)
         }
     }
 
@@ -117,13 +123,16 @@ impl Transpiler {
 
     fn transpile_c_tree(&mut self, tree: &SyntaxTree, indent: usize) -> Result<String, Box<dyn Error>>{
         match &tree.node {
-            SyntaxNode::StmtBlock(statements, _) => {
+            SyntaxNode::StmtBlock(statements, symbol_table) => {
+                let old_symbol_table = self.symbol_table.clone();
+                self.symbol_table = symbol_table.clone();
                 let mut statements_text = String::new();
                 for statement in statements {
                     statements_text += &format!("\n{0}", "\t".repeat(indent));
                     statements_text += &self.transpile_c_tree(statement, 0)?;
                 }
 
+                self.symbol_table = old_symbol_table;
                 Ok(statements_text)
             }
 
@@ -233,9 +242,16 @@ impl Transpiler {
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
             }
 
-            SyntaxNode::MatchStmt(_, _, _) => self.transpile_match_stmt(tree, indent),
+            SyntaxNode::Enumeraion(name, variants) => {
+                let enum_behaviours = match self.symbol_table.borrow().get(name).unwrap().category {
+                    SymbolType::EnumeraionType(_, _, behaviours) => behaviours,
+                    _ => panic!()
+                };
 
-            SyntaxNode::Enumeraion(name, variants) => self.transpile_enum(name, variants, indent),
+                self.transpile_enum(name, variants, enum_behaviours, indent)
+            }
+
+            SyntaxNode::MatchStmt(_, _, _) => self.transpile_match_stmt(tree, indent),
             other => panic!("{:?} is not a valid node!", other)
         }
     }
@@ -556,6 +572,14 @@ impl Transpiler {
                         let end = fold_constexpr_index(&r);
                         Ok(format!("array_range<{}, {}>({}, {})", get_array_inner_type(&target).as_ctype_str(), usize::abs_diff(start, end), start, end))
                     }
+                    "." => {
+                        let operator = match l.node {
+                            SyntaxNode::SelfIdentifier => "->",
+                            _ => "."
+                        };
+
+                        Ok(format!("{}{}{}", self.transpile_typed_expr_c(l, target)?, operator, self.transpile_typed_expr_c(r, target)?))
+                    }
                     _ => Ok(format!("{} {} {}", self.transpile_typed_expr_c(l, target)?, op, self.transpile_typed_expr_c(r, target)?)) 
                 }
             }
@@ -635,12 +659,20 @@ impl Transpiler {
             SyntaxNode::TypeCast(new_type, old_type, rhs) => 
                 Ok(format!("({}){}", new_type.as_ctype_str(), self.transpile_typed_expr_c(rhs, old_type)?)),
 
+            SyntaxNode::SelfIdentifier => Ok(format!("this")),
+
             other => panic!("{:?} is not a valid expression node!", other)
         }
     }
 
 
-    fn transpile_enum(&self, name: &String, variants: &Vec<SyntaxTree>, indent: usize) -> Result<String, Box<dyn Error>> {
+    fn transpile_enum(
+        &mut self, 
+        name: &String, // name of the enum to transpile
+        variants: &Vec<SyntaxTree>, // variants the enum may take
+        behaviours: Vec<Symbol>, // behaviours contained by the enum
+        indent: usize // current output file indentation level
+    ) -> Result<String, Box<dyn Error>> {
         let string = format!("
 class {0} {{
 public:
@@ -668,6 +700,8 @@ public:
     Tag getTag() {{ 
         return this->tag; 
     }}
+
+    {4}
 
 
 private:
@@ -706,7 +740,12 @@ private:
                     ),
                     _ => panic!()
                 }
-            ).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent)))
+            ).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent))),
+
+            behaviours.iter().map(|behaviour| match &behaviour.category {
+                SymbolType::Behaviour(_, _, tree) => self.transpile_c_tree(&tree, indent + 1).unwrap(),
+                _ => panic!()
+            }).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent)))
         );
         Ok(string)
     }

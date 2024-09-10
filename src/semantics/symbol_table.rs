@@ -43,17 +43,20 @@ use std::rc::{Rc, Weak};
 use std::collections::HashMap;
 
 use crate::parser::types::Type;
+use crate::SyntaxTree;
 
 
 /// Represents different types of symbols that can be stored in the symbol table.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SymbolType {
     /// Represents a variable with a name and a type.
     Variable(String, Type),
     /// Represents an enumeration with a name and its variants.
-    EnumeraionType(String, Type),
+    EnumeraionType(String, Type, Vec<Symbol>),
     /// Represents a function with a name, parameters, and a return type.
     Function(String, Type),
+    /// Behaviour name, function signature, associated syntax tree
+    Behaviour(String, Type, SyntaxTree)
 }
 
 
@@ -63,7 +66,8 @@ impl ToString for SymbolType {
         match self {
             Self::Variable(name, _) 
             | Self::Function(name, _) 
-            | Self::EnumeraionType(name, _) => name.to_string()
+            | Self::EnumeraionType(name, _, _) 
+            | Self::Behaviour(name, _, _) => name.to_string()
         }
     }
 }
@@ -75,7 +79,8 @@ impl SymbolType {
         match self {
             Self::Variable(_, t) 
             | Self::Function(_, t) 
-            | Self::EnumeraionType(_, t) => t.clone()   
+            | Self::EnumeraionType(_, t, _) 
+            | Self::Behaviour(_, t, _) => t.clone()   
         }
     }
 }
@@ -143,6 +148,16 @@ pub struct SymbolTable {
     /// If there is a "self", to what does it refer in this scope?
     pub self_ref: Option<Type>
 }
+
+
+impl PartialEq for SymbolTable {
+    fn eq(&self, other: &Self) -> bool {
+        self.table == other.table 
+        && self.self_ref == other.self_ref 
+        && self.children == other.children
+    }
+}
+
 
 impl SymbolTable {
     /// Creates a new `SymbolTable` with an optional parent.
