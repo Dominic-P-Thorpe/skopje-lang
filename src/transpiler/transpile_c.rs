@@ -605,10 +605,15 @@ impl Transpiler {
                 Ok("(".to_owned() + &self.transpile_typed_expr_c(expr, target)? + ")"),
             SyntaxNode::StringLiteral(s) => Ok(format!("\"{}\"", s)),
             SyntaxNode::IntLiteral(n) => Ok(n.to_string()),
-            SyntaxNode::FloatLiteral(f) => Ok(f.to_string()),
             SyntaxNode::BoolLiteral(true) => Ok("true".to_owned()),
             SyntaxNode::BoolLiteral(false) => Ok("false".to_owned()),
             SyntaxNode::Identifier(id) => Ok(id.to_owned()),
+
+            SyntaxNode::FloatLiteral(f) => if f.fract() == 0.0 {
+                Ok(format!("{}.0", f.to_string()))
+            } else {
+                Ok(format!("{}", f.to_string()))
+            } 
 
             SyntaxNode::SubarrayOperation(root, root_type, start, end) => {
                 match &root_type.basic_type {
