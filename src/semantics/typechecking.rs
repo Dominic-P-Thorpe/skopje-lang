@@ -103,6 +103,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
         }
 
         SyntaxNode::IntLiteral(_) => Ok(Type::new(SimpleType::I64, false, vec![])),
+        SyntaxNode::FloatLiteral(_) => Ok(Type::from_basic(SimpleType::F64)),
         SyntaxNode::StringLiteral(_) => Ok(Type::new(SimpleType::Str, false, vec![])),
         SyntaxNode::BoolLiteral(_) => Ok(Type::new(SimpleType::Bool, false, vec![])),
         SyntaxNode::ParenExpr(expr) => get_expr_type(expr, context),

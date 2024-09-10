@@ -71,6 +71,7 @@ pub enum Pattern {
     BetweenEqRangePattern(String, i64, i64),
     // placeholder name for the pattern variable, value of the literal
     IntLiteralPattern(String, i64),
+    FloatLiteralPattern(String, f64),
     StrLiteralPattern(String, String),
     BoolLiteralPattern(String, bool)
 }
@@ -125,6 +126,7 @@ pub enum SyntaxNode {
     FunctionCallStmt(String, Vec<SyntaxTree>),
     StringLiteral(String),
     IntLiteral(u64),
+    FloatLiteral(f64),
     BoolLiteral(bool),
     TupleLiteral(Vec<SyntaxTree>),
     ArrayLiteral(Vec<SyntaxTree>, Type),
@@ -598,6 +600,7 @@ impl Parser {
             TokenType::BoolLiteral(literal) => Ok(Pattern::BoolLiteralPattern(self.generate_random_variable(), literal)),
             TokenType::StrLiteral(literal) => Ok(Pattern::StrLiteralPattern(self.generate_random_variable(), literal)),
             TokenType::IntLiteral(literal) => self.parse_int_range_pattern(literal.try_into().unwrap()),
+            TokenType::FloatLiteral(literal) => Ok(Pattern::FloatLiteralPattern(self.generate_random_variable(), literal)),
             TokenType::OpenParen => self.parse_tuple_pattern(),
             TokenType::OpenSquare => self.parse_array_pattern(),
             TokenType::DoubleDot => self.parse_leq_range_pattern(),
@@ -1408,6 +1411,7 @@ impl Parser {
         match next_token.token_type {
             TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s), next_token.line_number, next_token.col_number)),
             TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n), next_token.line_number, next_token.col_number)),
+            TokenType::FloatLiteral(f) => Ok(SyntaxTree::new(SyntaxNode::FloatLiteral(f), next_token.line_number, next_token.col_number)),
             TokenType::BoolLiteral(b) => Ok(SyntaxTree::new(SyntaxNode::BoolLiteral(b), next_token.line_number, next_token.col_number)),
             TokenType::SelfKeyword => Ok(SyntaxTree::new(SyntaxNode::SelfIdentifier, next_token.line_number, next_token.col_number)),
             TokenType::DoKeyword => self.parse_do_block(),

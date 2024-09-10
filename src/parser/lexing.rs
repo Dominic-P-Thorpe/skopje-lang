@@ -450,6 +450,11 @@ impl Scanner {
 
                 
                 if token_text.chars().all(|c| c.is_numeric()) && !self.peek(line, 0).unwrap_or('\0').is_numeric() {
+                    if self.peek(line, 0).unwrap_or('\0') == '.' {
+                        self.advance();
+                        let decimal_part: String = self.lex_number(line);
+                        return Ok(TokenType::FloatLiteral(format!("{}.{}", token_text, decimal_part).parse::<f64>().unwrap()));
+                    }
                     return Ok(TokenType::IntLiteral(token_text.parse::<u64>().unwrap()));
                 }
 
@@ -457,6 +462,21 @@ impl Scanner {
                 Err(LexingError::UnrecognizedToken(token_text.to_owned(), self.line, self.start))
             }
         }
+    }
+
+
+    fn lex_number(&mut self, line: &str) -> String {
+        let mut decimal = String::new();
+        while let Some(c) = self.peek(line, 0) {
+            if !c.is_numeric() {
+                break;
+            }
+            
+            self.advance();
+            decimal += &c.to_string();
+        }
+
+        decimal
     }
 
 

@@ -69,6 +69,7 @@ pub enum TokenType {
     DefaultKeyword,
     StrLiteral(String),
     IntLiteral(u64),
+    FloatLiteral(f64),
     BoolLiteral(bool),
     Identifier(String)
 }

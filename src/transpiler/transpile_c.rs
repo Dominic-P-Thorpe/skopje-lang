@@ -293,6 +293,13 @@ impl Transpiler {
                     self.transpile_c_tree(body, indent + 1)?
                 )),
 
+                Pattern::FloatLiteralPattern(_, literal) => patterns_strs.push(format!(
+                    "{0}if ({1} == {2}) {{{0}{3}\n{0}}}", 
+                    "\t".repeat(indent), 
+                    match_expr_str, literal, 
+                    self.transpile_c_tree(body, indent + 1)?
+                )),
+
                 Pattern::BoolLiteralPattern(_, literal) => patterns_strs.push(format!(
                     "{0}if ({1} == {2}) {{{0}{3}\n{0}}}", 
                     "\t".repeat(indent), 
@@ -498,6 +505,7 @@ impl Transpiler {
         for sub_pattern in sub_patterns {
             match sub_pattern {
                 Pattern::IntLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
+                Pattern::FloatLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
                 Pattern::StrLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
                 Pattern::BoolLiteralPattern(id, literal) => sub_pattern_strs.push(format!("{} == {:?}", id, literal)),
                 Pattern::TuplePattern(_, sub_sub_patterns) => sub_pattern_strs.push(self.transpile_conditional_patterns(sub_sub_patterns, match_expr_str)),
@@ -595,6 +603,7 @@ impl Transpiler {
                 Ok("(".to_owned() + &self.transpile_typed_expr_c(expr, target)? + ")"),
             SyntaxNode::StringLiteral(s) => Ok(format!("\"{}\"", s)),
             SyntaxNode::IntLiteral(n) => Ok(n.to_string()),
+            SyntaxNode::FloatLiteral(f) => Ok(f.to_string()),
             SyntaxNode::BoolLiteral(true) => Ok("true".to_owned()),
             SyntaxNode::BoolLiteral(false) => Ok("false".to_owned()),
             SyntaxNode::Identifier(id) => Ok(id.to_owned()),
