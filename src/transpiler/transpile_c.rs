@@ -210,10 +210,10 @@ impl Transpiler {
             
             SyntaxNode::WhileStmt(cond, body) => {
                 Ok(format!(
-                    "{0}while ({1}) {{\n{2}{0}\n{0}}}\n", 
+                    "{0}while ({1}) {{{2}{0}\n{0}\t}}\n", 
                     "    ".repeat(indent),
                     self.transpile_typed_expr_c(cond, &Type::from_basic(SimpleType::Bool))?,
-                    self.transpile_c_tree(body, indent + 1)?
+                    self.transpile_c_tree(body, indent + 2)?
                 ))
             }
 
@@ -252,6 +252,8 @@ impl Transpiler {
             }
 
             SyntaxNode::MatchStmt(_, _, _) => self.transpile_match_stmt(tree, indent),
+            SyntaxNode::ContinueStmt => Ok(format!("{}continue;", "\t".repeat(indent))),
+            SyntaxNode::BreakStmt => Ok(format!("{}break;", "\t".repeat(indent))),
             other => panic!("{:?} is not a valid node!", other)
         }
     }

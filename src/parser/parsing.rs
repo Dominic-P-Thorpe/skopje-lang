@@ -94,6 +94,8 @@ pub enum SyntaxNode {
     WhileStmt(Box<SyntaxTree>, Box<SyntaxTree>),
     // Loop variable name, loop var type, expr to loop over, loop body
     ForStmt(String, Type, Box<SyntaxTree>, Box<SyntaxTree>),
+    BreakStmt,
+    ContinueStmt,
     // expression to match, patterns to match against and syntax tree to run if match succeeds,
     // type of the expression to match
     // Members of vector of patterns are a tuple where the first element is a vector of patterns
@@ -393,6 +395,16 @@ impl Parser {
             TokenType::LetKeyword => self.parse_let_statement(next_token.line_number, next_token.col_number),
             TokenType::ForKeyword => self.parse_for_loop(next_token.line_number, next_token.col_number),
             TokenType::MatchKeyword => self.parse_match_stmt(next_token.line_number, next_token.col_number),
+            TokenType::ContinueKeyword => {
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, Semicolon);
+                Ok(SyntaxTree::new(SyntaxNode::ContinueStmt, next_token.line_number, next_token.col_number))
+            }
+            TokenType::BreakKeyword => {
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, Semicolon);
+                Ok(SyntaxTree::new(SyntaxNode::BreakStmt, next_token.line_number, next_token.col_number))
+            }
             _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Statement)))
         }
     }
@@ -783,11 +795,11 @@ impl Parser {
 
     fn parse_func_call_or_reassignment_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.get(0).unwrap();
-        match next_token.token_type {
+        match &next_token.token_type {
             TokenType::OpenParen => self.parse_func_call_stmt(id, line_num, col_num),
             TokenType::Equal
             | TokenType::OpenSquare => self.parse_reassignment(id, line_num, col_num),
-            _ => panic!()
+            other => panic!("Expected = or function call, got {:?}", other)
         }
     }
 

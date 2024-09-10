@@ -442,6 +442,8 @@ impl Scanner {
                             "trait" => return Ok(TokenType::TraitKeyword),
                             "default" => return Ok(TokenType::DefaultKeyword),
                             "self" => return Ok(TokenType::SelfKeyword),
+                            "break" => return Ok(TokenType::BreakKeyword),
+                            "continue" => return Ok(TokenType::ContinueKeyword),
                             // is not a keyword, and therefore is an identifier
                             _ => return Ok(TokenType::Identifier(token_text.to_owned()))
                         }
