@@ -51,13 +51,14 @@
 //!     Err(e) => eprintln!("Type error: {:?}", e),
 //! }
 //! ```
+use std::collections::HashMap;
 use std::error::Error;
 
 use crate::parser::parsing::{SyntaxNode, SyntaxTree};
 use crate::parser::types::{Type, SimpleType};
 
 use super::errors::TypeError;
-use super::symbol_table::{SymbolTable, SymbolType};
+use super::symbol_table::{Symbol, SymbolTable, SymbolType};
 
 
 /// Determines the type of a given expression within a specific context.
@@ -170,9 +171,9 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
         }
 
         SyntaxNode::EnumInstantiation(enum_type, variant_name, _) => match enum_type.basic_type.clone() {
-            SimpleType::Enum(enum_name, variants, _) => {
+            SimpleType::Enum(enum_name, variants, _, _, _) => {
                 assert!(variants.contains_key(variant_name));
-                Ok(Type::from_basic(SimpleType::Enum(enum_name, variants, Some(variant_name.to_owned()))))
+                Ok(Type::from_basic(SimpleType::Enum(enum_name, variants, Some(variant_name.to_owned()), HashMap::new(), vec![])))
             }
             _ => panic!()
         }
@@ -186,6 +187,14 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             );
             Ok(new_type.clone())
         },
+
+        SyntaxNode::SelfIdentifier => {
+            match &context.self_ref {
+                Some(self_ref) => Ok(self_ref.clone()),
+                None => panic!("Using self is not valid in this context!")
+            }
+        }
+
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }
@@ -271,10 +280,51 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
             panic!("Expected 2 array arguments for operation ::")
         }
 
+        "." => {
+            match l_type.basic_type {
+                SimpleType::Enum(_, _, _, behaviours, _) => 
+                    get_enum_expr_return_type(behaviours, r, context),
+                _ => panic!()
+            }
+        }
         "==" | "!=" => unimplemented!("Have not yet implemented equality!"),
         _ => panic!("Did not recognise operator {}", op)
     }
 } 
+
+
+fn get_enum_expr_return_type(behaviours: HashMap<String, Symbol>, tree: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
+    let mut behaviours = behaviours;
+    // println!("Behaviours: {:#?}", behaviours);
+    match &tree.node {
+        SyntaxNode::FunctionCall(id, _) => match behaviours.get(id).unwrap().clone().category {
+            SymbolType::Behaviour(_, behaviour_type, _) => {
+                match behaviour_type.basic_type {
+                    SimpleType::Function(return_type, _) => Ok(*return_type),
+                    _ => panic!()
+                }
+            },
+            _ => panic!()
+        }
+
+        SyntaxNode::BinaryOperation(op, left, right) => {
+            if op.as_str() != "." {
+                panic!("Expected '.' operator, got {}", op)
+            }
+
+            let l_type: Type = get_expr_type(left, context)?;
+            match l_type.basic_type {
+                SimpleType::Enum(_, _, _, new_behaviours, _) => {
+                    behaviours.extend(new_behaviours);
+                    get_enum_expr_return_type(behaviours, right, context)
+                }
+                _ => panic!()
+            }
+        }
+
+        other => panic!("Expected identifier or '.', got {:?}", other)
+    }
+}
 
 
 /// Determines the type of an l-value expression, such as an identifier or array indexing operation.

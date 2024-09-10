@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::rc::Rc;
 
@@ -76,7 +76,7 @@ pub enum Pattern {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SyntaxNode {
     Program(Box<SyntaxTree>),
     // name, variants
@@ -131,12 +131,13 @@ pub enum SyntaxNode {
     // store the type so that if the type is an std::unique_ptr we know to use std::move when we 
     // want to use it
     Identifier(String),
+    SelfIdentifier,
     // a block of statements represented as a vec, and a pointer to the symbol table of that block
     StmtBlock(Vec<SyntaxTree>, Rc<RefCell<SymbolTable>>)
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SyntaxTree {
     pub node: SyntaxNode,
     pub start_index: usize,
@@ -199,7 +200,8 @@ impl Parser {
             match &next_token.token_type {
                 TokenType::FnKeyword => top_level_constructs.push(self.parse_function(next_token.line_number, next_token.col_number)?),
                 TokenType::EnumKeyword => top_level_constructs.push(self.parse_enumeration(next_token.line_number, next_token.col_number)?),
-                _ => panic!()
+                TokenType::ImplKeyword => self.parse_enum_impl()?,
+                other => panic!("Expected 'fn', 'enum', or 'impl', got {:?}", other)
             }
         }
 
@@ -486,7 +488,7 @@ impl Parser {
             Pattern::EnumPattern(enum_name, variant_name, _) => {
                 let enum_type: Type = self.current_symbol_table.borrow().get(enum_name).unwrap().get_type();
                 let expected_params = match &enum_type.basic_type {
-                    SimpleType::Enum(_, variants, _) => 
+                    SimpleType::Enum(_, variants, _, _, _) => 
                         variants.get(variant_name).unwrap(),
                     _ => panic!()
                 };
@@ -556,7 +558,7 @@ impl Parser {
     ) -> Vec<Symbol> {
         let mut result: Vec<Symbol> = vec![];
         let variant_data_params = match &enum_type.basic_type {
-            SimpleType::Enum(_, variants, _) => variants.get(variant_name).unwrap(),
+            SimpleType::Enum(_, variants, _, _, _) => variants.get(variant_name).unwrap(),
             _ => panic!()
         };
 
@@ -852,7 +854,7 @@ impl Parser {
         // if the type is an raw enum name and not an enum instantiation, it is not valid as it is
         // not a type
         match expr_type.basic_type {
-            SimpleType::Enum(_, _, None) => panic!("A raw enum is a type, not a value!"),
+            SimpleType::Enum(_, _, None, _, _) => panic!("A raw enum is a type, not a value!"),
             _ => ()
         }
 
@@ -1102,10 +1104,10 @@ impl Parser {
             SyntaxNode::Identifier(id) => {
                 let rt = get_expr_type(&root, &self.current_symbol_table.borrow()).unwrap();
                 match rt.basic_type {
-                    SimpleType::Enum(name, _, None) => {
+                    SimpleType::Enum(name, _, None, _, _) => {
                         match self.current_symbol_table.clone().borrow().get(&id).unwrap().category {
                             // is an enum name and must be am instantiation
-                            SymbolType::EnumeraionType(_, _) => return self.parse_enum_instantiation(root, name),
+                            SymbolType::EnumeraionType(_, _, _) => return self.parse_enum_instantiation(root, name),
                             // is not an enum name
                             _ => get_expr_type(&root, &self.current_symbol_table.borrow())?
                         }
@@ -1118,7 +1120,7 @@ impl Parser {
         };
         
         match root_type.basic_type.clone() {
-            SimpleType::Enum(_, _, _) => Ok(root),
+            SimpleType::Enum(_, _, _, _, _) => Ok(root),
             _ => { // is an array concatenation
                 loop {
                     let next_token = self.tokens.pop_front().unwrap();
@@ -1160,12 +1162,12 @@ impl Parser {
         let variant_params: IndexMap<String, SyntaxTree> = self.parse_enum_variant_params()?;
         let name_category = self.current_symbol_table.borrow().get(&name).unwrap().category;
         let enum_type = match &name_category {
-            SymbolType::EnumeraionType(_, t) => t,
+            SymbolType::EnumeraionType(_, t, _) => t,
             _ => panic!()
         };
 
         match &enum_type.basic_type {
-            SimpleType::Enum(_, variants, _) => {
+            SimpleType::Enum(_, variants, _, _, _) => {
                 // check that the number of parameters passed to the variant matches the number of
                 // parameters the variant has
                 let enum_variant_params = variants.get(&variant_id).unwrap();
@@ -1369,7 +1371,12 @@ impl Parser {
 
 
     fn parse_range(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        parse_binary_operator!(self, parse_cast, DoubleDot => "..")
+        parse_binary_operator!(self, parse_dot, DoubleDot => "..")
+    }
+
+
+    fn parse_dot(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        parse_binary_operator!(self, parse_cast, Dot => ".")
     }
 
 
@@ -1402,6 +1409,7 @@ impl Parser {
             TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s), next_token.line_number, next_token.col_number)),
             TokenType::IntLiteral(n) => Ok(SyntaxTree::new(SyntaxNode::IntLiteral(n), next_token.line_number, next_token.col_number)),
             TokenType::BoolLiteral(b) => Ok(SyntaxTree::new(SyntaxNode::BoolLiteral(b), next_token.line_number, next_token.col_number)),
+            TokenType::SelfKeyword => Ok(SyntaxTree::new(SyntaxNode::SelfIdentifier, next_token.line_number, next_token.col_number)),
             TokenType::DoKeyword => self.parse_do_block(),
 
             TokenType::Identifier(id) => {
@@ -1613,9 +1621,9 @@ impl Parser {
         let variants = self.parse_enum_variants()?;
         let variant_data = self.get_enum_variants_data(&variants);
 
-        let t: Type = Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data, None));
+        let t: Type = Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data, None, HashMap::new(), vec![]));
         self.current_symbol_table.borrow_mut().insert(
-            Symbol::new(SymbolType::EnumeraionType(identifier.clone(), t.clone()), 
+            Symbol::new(SymbolType::EnumeraionType(identifier.clone(), t.clone(), vec![]), 
             start_line, start_index)
         );
         Ok(SyntaxTree::new(SyntaxNode::Enumeraion(identifier, variants), start_line, start_index))
@@ -1689,6 +1697,85 @@ impl Parser {
             next_token.line_number, next_token.col_number
         ))
     }
+
+
+    /// Parses an enum implementation after the "impl" keyword has already been consumed
+    fn parse_enum_impl(&mut self) -> Result<(), Box<dyn Error>> {
+        let next_token = self.tokens.pop_front().unwrap();
+        let enum_name = match next_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+        };
+        let enum_name = enum_name.as_str();
+
+        let mut enum_type = self.current_symbol_table.borrow().get(&enum_name.to_owned()).unwrap().get_type();
+
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, OpenCurly);
+
+        // create a new scope in the symbol table for the impl block
+        self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
+        self.current_symbol_table.borrow_mut().self_ref = Some(enum_type.clone());
+
+        let mut behaviours: Vec<(String, Symbol)> = vec![];
+        loop {
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::CloseCurly => break, // end of impl  block
+                TokenType::FnKeyword => {
+                    let (line, col) = (next_token.line_number, next_token.col_number);
+                    let function = self.parse_function(next_token.line_number, next_token.col_number)?;
+                    // add the new behaviour function to the list of behaviours available to the 
+                    // value referred to if the programmer uses "self"
+                    match &function.node {
+                        SyntaxNode::Function(name, _, _, _) => {
+                            // get the type of this function from the context
+                            let function_type = self.current_symbol_table.borrow().get(&name).unwrap().get_type();
+                            let behaviour_symbol = Symbol::new(
+                                SymbolType::Behaviour(name.clone(), function_type, function.clone()), 
+                                line, col
+                            );
+                            
+                            // add the function to the enum's behaviours
+                            match &mut self.current_symbol_table.borrow_mut().self_ref {
+                                Some(self_type) => {
+                                    self_type.add_behaviour(name.to_string(), behaviour_symbol.clone())
+                                }
+                                None => panic!()
+                            };
+
+                            // record all the encountered behaviours in the behaviours array so that
+                            // they can be added to the enum's type in the main symbol table later
+                            // on
+                            behaviours.push((name.to_string(), behaviour_symbol))
+                        }
+                        _ => panic!()
+                    }
+                },
+
+                _ => panic!()
+            }
+        }
+
+        for (name, function_type) in &behaviours {
+            enum_type.add_behaviour(name.to_string(), function_type.clone());
+        }
+
+        self.current_symbol_table.borrow_mut().replace_symbol(
+            enum_name, 
+            Symbol::new(SymbolType::EnumeraionType(enum_name.to_owned(), enum_type, behaviours.clone().iter().map(|(_, t)| t).cloned().collect()), 
+            0, 0)
+        );
+
+        // restore the symbol table to the one from outside the impl block
+        let parent_symbol_table = self.current_symbol_table
+                                      .borrow()
+                                      .parent.as_ref()
+                                      .unwrap()
+                                      .upgrade().unwrap();
+        self.current_symbol_table = parent_symbol_table;
+        Ok(())
+    }
 }
 
 
@@ -1697,6 +1784,15 @@ mod tests {
     use crate::Scanner;
 
     use super::Parser;
+
+
+    #[test]
+    fn test_basic_enum_impl() {
+        let scanner = Scanner::new("tests/test_basic_enum_impl.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
 
     #[test]
     #[should_panic]
