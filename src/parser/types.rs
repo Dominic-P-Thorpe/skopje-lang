@@ -7,8 +7,12 @@ use super::errors::ParsingError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SimpleType {
+    I8,
+    I16,
     I32,
     I64,
+    U8,
+    U16,
     U32,
     U64,
     Str,
@@ -30,8 +34,12 @@ pub enum SimpleType {
 impl SimpleType {
     pub fn from_string(src: &str, symbol_table: &SymbolTable) -> Result<Self, Box<dyn Error>> {
         Ok(match src {
+            "i8" => Self::I8,
+            "i16" => Self::I16,
             "i32" => Self::I32,
             "i64" => Self::I64,
+            "u8" => Self::U8,
+            "u16" => Self::U16,
             "u32" => Self::U32,
             "u64" => Self::U64,
             "str" => Self::Str,
@@ -52,8 +60,12 @@ impl SimpleType {
     pub fn as_ctype_str(&self) -> String {
         match self {
             Self::Void => String::from("void"),
+            Self::I8 => String::from("int8_t"),
+            Self::I16 => String::from("int16_t"),
             Self::I32 => String::from("int32_t"),
             Self::I64 => String::from("int64_t"),
+            Self::U8 => String::from("uint8_t"),
+            Self::U16 => String::from("uint16_t"),
             Self::U32 => String::from("uint32_t"),
             Self::U64 => String::from("uint64_t"),
             Self::Str => String::from("std::string"),
@@ -137,6 +149,8 @@ impl SimpleType {
     #[allow(unused)]
     pub fn get_size(&self) -> usize {
         match &self {
+            Self::I8  | Self::U8  => 8,
+            Self::I16 | Self::U16 => 16,
             Self::I32 | Self::U32 => 32,
             Self::I64 | Self::U64 => 64,
             Self::Bool => 8,
@@ -147,7 +161,10 @@ impl SimpleType {
 
     pub fn is_numeric(&self) -> bool {
         match self {
-            Self::I32 | Self::I64 | Self::U32 | Self::U64 => true,
+            Self::I8 | Self::U8 
+            | Self::I16 | Self::U16 
+            | Self::I32 | Self::I64 
+            | Self::U32 | Self::U64 => true,
             _ => false
         }
     }
