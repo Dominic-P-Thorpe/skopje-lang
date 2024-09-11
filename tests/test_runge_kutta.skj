@@ -1,0 +1,29 @@
+fn ode(t: f32, y: f32) -> f32 {
+    return y + t;
+}
+
+fn runge_kutta_4(y_0: f32, t_0: f32, t_n: f32, h: f32) -> f32 {
+    let t: f32 = t_0;
+    let y: f32 = y_0;
+
+    while (t < t_n) {
+        // Calculate the four Runge-Kutta increments (k1, k2, k3, k4)
+        let k1: f32 = h * ode(t, y);
+        let k2: f32 = h * ode(t + h/2, y + k1/2);
+        let k3: f32 = h * ode(t + h/2, y + k2/2);
+        let k4: f32 = h * ode(t + h, y + k3);
+
+        // Update the value of y using the weighted average of the slopes
+        y = y + (1.0/6.0) * (k1 + 2*k2 + 2*k3 + k4);
+
+        // Update the value of t
+        t = t + h;
+    }
+
+    return y;
+}
+
+fn main() -> u32 {
+    let result: f32 = runge_kutta_4(1, 0, 2, 0.1);
+    return 1;
+}

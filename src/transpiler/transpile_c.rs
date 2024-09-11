@@ -963,6 +963,14 @@ mod test {
 
 
     #[test]
+    fn test_runge_kutta() {
+        let scanner = Scanner::new("tests/test_runge_kutta.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
     #[should_panic]
     #[ignore]
     fn test_non_total_enum_match() {
