@@ -452,7 +452,7 @@ impl Scanner {
 
                 
                 if token_text.chars().all(|c| c.is_numeric()) && !self.peek(line, 0).unwrap_or('\0').is_numeric() {
-                    if self.peek(line, 0).unwrap_or('\0') == '.' {
+                    if self.peek(line, 0).unwrap_or('\0') == '.' && self.peek(line, 1).unwrap_or('\0').is_numeric() {
                         self.advance();
                         let decimal_part: String = self.lex_number(line);
                         return Ok(TokenType::FloatLiteral(format!("{}.{}", token_text, decimal_part).parse::<f64>().unwrap()));
