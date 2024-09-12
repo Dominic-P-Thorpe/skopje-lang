@@ -42,7 +42,7 @@ use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 use std::collections::HashMap;
 
-use crate::parser::types::Type;
+use crate::parser::types::{SimpleType, Type};
 use crate::SyntaxTree;
 
 
@@ -170,9 +170,45 @@ impl SymbolTable {
     ///
     /// A reference-counted `Rc<RefCell<SymbolTable>>` pointing to the new symbol table.
     pub fn new(parent: Option<Weak<RefCell<SymbolTable>>>) -> Rc<RefCell<Self>> {
+        // construct and insert the types of all the current stdlib functions
+        let table = match &parent {
+            Some(_) => HashMap::new(),
+            None => {
+                let mut functions: HashMap<String, Symbol> = HashMap::new();
+                
+                let print_type = Type::from_basic(SimpleType::Function(
+                    Box::new(Type::from_basic(SimpleType::Void)), 
+                    vec![Type::from_basic(SimpleType::Str)]
+                ));
+
+                let float2str_type = Type::from_basic(SimpleType::Function(
+                    Box::new(Type::from_basic(SimpleType::Str)), 
+                    vec![Type::from_basic(SimpleType::F64)]
+                ));
+
+                let int2str_type = Type::from_basic(SimpleType::Function(
+                    Box::new(Type::from_basic(SimpleType::Str)), 
+                    vec![Type::from_basic(SimpleType::I64)]
+                ));
+
+                let bool2str_type = Type::from_basic(SimpleType::Function(
+                    Box::new(Type::from_basic(SimpleType::Str)), 
+                    vec![Type::from_basic(SimpleType::Bool)]
+                ));
+        
+                functions.insert("print".to_owned(), Symbol::new(SymbolType::Function("print".to_owned(), print_type), 0, 0));
+                functions.insert("float2str".to_owned(), Symbol::new(SymbolType::Function("float2str".to_owned(), float2str_type), 0, 0));
+                functions.insert("int2str".to_owned(), Symbol::new(SymbolType::Function("int2str".to_owned(), int2str_type), 0, 0));
+                functions.insert("bool2str".to_owned(), Symbol::new(SymbolType::Function("bool2str".to_owned(), bool2str_type), 0, 0));
+
+
+                functions
+            }
+        };
+
         Rc::new(RefCell::new(SymbolTable {
+            table,
             parent: parent.clone(),
-            table: HashMap::new(),
             children: vec![],
             self_ref: match parent {
                 None => None,

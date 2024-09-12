@@ -165,7 +165,7 @@ impl Transpiler {
                                             .map(|arg| self.transpile_typed_expr_c(arg, &Type::from_basic(SimpleType::Void)).unwrap())
                                             .collect();
                 if func_id == "print" {
-                    return Ok(format!("{}printf({});", "    ".repeat(indent), args.first().unwrap()));
+                    return Ok(format!("{}std::cout << ({}) << std::endl;", "    ".repeat(indent), args.first().unwrap()));
                 } else if func_id == "readln" {
                     return Ok(format!("{}readln({});", "    ".repeat(indent), args.first().unwrap()));
                 }
@@ -798,6 +798,8 @@ pub fn capitalize(s: &str) -> String {
 
 #[cfg(test)]
 mod test {
+    use std::process::Command;
+
     use crate::parser::parsing::Parser;
     use crate::parser::lexing::Scanner;
     use super::Transpiler;
@@ -809,6 +811,7 @@ mod test {
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
 
@@ -831,6 +834,7 @@ mod test {
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
 
@@ -853,6 +857,7 @@ mod test {
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
 
@@ -881,6 +886,7 @@ mod test {
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
 
@@ -904,6 +910,7 @@ mod test {
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
 
@@ -929,6 +936,7 @@ mod test {
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
 
@@ -959,6 +967,7 @@ mod test {
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
 
@@ -966,7 +975,9 @@ mod test {
     fn test_runge_kutta() {
         let scanner = Scanner::new("tests/test_runge_kutta.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
-        parser.parse().unwrap();
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
 
