@@ -1478,7 +1478,42 @@ impl Parser {
 
 
     fn parse_dot(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        parse_binary_operator!(self, parse_cast, Dot => ".")
+        // parse_binary_operator!(self, parse_cast, Dot => ".")
+        let mut root: SyntaxTree = self.parse_cast()?;
+        let (root_line, root_col) = (root.start_line, root.start_index);
+
+        loop {
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Dot => {
+                    let left_type = get_expr_type(&root, &self.current_symbol_table.borrow())?; 
+                    let right = match left_type.basic_type {
+                        SimpleType::Struct(_, _) => {
+                            let next_token = self.tokens.pop_front().unwrap();
+                            match next_token.token_type {
+                                TokenType::Identifier(id) => SyntaxTree::new(SyntaxNode::Identifier(id), next_token.line_number, next_token.col_number),
+                                _ => panic!()
+                            }
+                        }
+                        _ => self.parse_cast()?
+                    };
+
+                    root = SyntaxTree::new(SyntaxNode::BinaryOperation(
+                        ".".to_owned(),
+                        Box::new(root),
+                        Box::new(right),
+                    ), root_line, root_col);
+                }
+
+                // End of this level of precedence
+                _ => {
+                    self.tokens.push_front(next_token);
+                    break;
+                }
+            }
+        }
+
+        Ok(root)
     }
 
 

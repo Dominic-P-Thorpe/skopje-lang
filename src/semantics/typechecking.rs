@@ -84,6 +84,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
                 let (left_value, right_value) = (fold_constexpr_index(l), fold_constexpr_index(r));
                 Ok(Type::from_basic(SimpleType::Array(Box::new(left_type), usize::abs_diff(left_value, right_value))))
             }
+            "." => get_struct_member_type(None, expr, context),
             _ => get_binary_operation_type(op.to_string(), &*l, &*r, context)
         }
 
@@ -218,6 +219,43 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
         }
 
         other => unimplemented!("Have not yet implemented {:?}", other)
+    }
+}
+
+
+fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
+    let right_type: Type = match right_type {
+        None => match &l.node {
+            SyntaxNode::BinaryOperation(_, left, right) => {
+                let left_type = match &left.node {
+                    SyntaxNode::Identifier(id) => context.get(&id).unwrap().get_type(),
+                    SyntaxNode::BinaryOperation(_, _, _) => get_struct_member_type(None, left, context)?,
+                    other => panic!("Expected identifier, got {:?}", other)
+                };
+                return get_struct_member_type(Some(left_type), &right, context);
+            }
+
+            _ => panic!()
+        },
+
+        Some(l) => l
+    };
+    
+    match &l.node {
+        SyntaxNode::Identifier(id) => match right_type.basic_type {
+            SimpleType::Struct(_, members) => Ok(members.get(id).unwrap().clone()),
+            _ => panic!()
+        }
+
+        SyntaxNode::BinaryOperation(op, left, right) => {
+            if op.as_str() != "." {
+                panic!("Expected '.' operator, got {}", op);
+            }
+
+            let right_type = get_expr_type(&right, context)?;
+            get_struct_member_type(Some(right_type), left, context)
+        }
+        _ => panic!()
     }
 }
 
