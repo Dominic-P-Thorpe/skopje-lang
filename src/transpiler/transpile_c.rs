@@ -165,7 +165,7 @@ impl Transpiler {
                                             .map(|arg| self.transpile_typed_expr_c(arg, &Type::from_basic(SimpleType::Void)).unwrap())
                                             .collect();
                 if func_id == "print" {
-                    return Ok(format!("{}printf({});", "    ".repeat(indent), args.first().unwrap()));
+                    return Ok(format!("{}std::cout << ({}) << std::endl;", "    ".repeat(indent), args.first().unwrap()));
                 } else if func_id == "readln" {
                     return Ok(format!("{}readln({});", "    ".repeat(indent), args.first().unwrap()));
                 }

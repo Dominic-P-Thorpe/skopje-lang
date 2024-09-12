@@ -216,4 +216,28 @@ constexpr auto get_last_elements(const T& arr) {
     return result;
 }
 
+
+/// @brief An alias for std::to_string which converts a float to a string
+/// @param f The float to stringify
+/// @return The float as a string
+std::string float2str(float f) {
+    return std::to_string(f);
+}
+
+
+/// @brief An alias for std::to_string which converts an integer to a string
+/// @param i The integer to stringify
+/// @return The integer as a string
+std::string int2str(int64_t i) {
+    return std::to_string(i);
+}
+
+
+/// @brief An alias for std::to_string which converts a boolean to a string
+/// @param b The boolean to stringify
+/// @return The boolean as a string
+std::string bool2str(bool b) {
+    return b ? "true" : "false";
+}
+
 #endif

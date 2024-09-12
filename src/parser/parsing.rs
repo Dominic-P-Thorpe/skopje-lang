@@ -184,16 +184,6 @@ impl Parser {
             current_return_type: None
         };
 
-        let print_type = Type::from_basic(
-            SimpleType::Function(
-                Box::new(Type::from_basic(SimpleType::Void)), 
-                vec![Type::from_basic(SimpleType::Str)]
-            )
-        );
-
-        parser.symbol_table_root.borrow_mut().insert(
-            Symbol::new(SymbolType::Function("print".to_owned(), print_type), 0, 0)
-        );
         parser
     }
 
