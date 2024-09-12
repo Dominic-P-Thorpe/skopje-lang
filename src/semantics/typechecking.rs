@@ -196,6 +196,27 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             }
         }
 
+        SyntaxNode::StructInstantiation(name, instance_members) => {
+            // check that all the members of the instance are the correct type
+            let struct_type: Type = context.get(name).unwrap().get_type();
+            match &struct_type.basic_type {
+                SimpleType::Struct(_, type_members) => {
+                    // check that the instance has the right number of members
+                    assert_eq!(type_members.len(), instance_members.len());
+                    for (m, t) in type_members.iter() {
+                        let instance_member_type: Type = get_expr_type(instance_members.get(m).unwrap(), context)?;
+                        if !t.is_compatible_with(&instance_member_type) {
+                            return Err(Box::new(TypeError::new(vec![t.clone()], instance_member_type)))
+                        }
+                    }
+                }
+
+                _ => panic!()
+            };
+
+            Ok(struct_type)
+        }
+
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }

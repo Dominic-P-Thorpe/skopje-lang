@@ -22,7 +22,6 @@
 use indexmap::IndexMap;
 use rand::distributions::{Alphanumeric, DistString};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -261,15 +260,17 @@ impl Transpiler {
     }
 
 
-    fn transpile_struct(&mut self, name: &str, members: &HashMap<String, Type>, indent: usize) -> Result<String, Box<dyn Error>> {
+    fn transpile_struct(&mut self, name: &str, members: &IndexMap<String, Type>, indent: usize) -> Result<String, Box<dyn Error>> {
         Ok(format!(
-            "\nclass {1} {{\n{0}public:\n\t{2}{0}}};",
+            "\nclass {1} {{\n{0}public:\n\t{2}\n\t{1}({3}) : {4} {{}}\n{0}}};",
             "\t".repeat(indent),
             name,
-            members.iter()
-                   .map(|(k, v)| format!("{} {};\n", v.as_ctype_str(), k))
-                   .collect::<Vec<String>>()
-                   .join("\t")
+            members.iter().map(|(k, v)| format!("{} {};\n", v.as_ctype_str(), k))
+                   .collect::<Vec<String>>().join("\t"),
+            members.iter().map(|(k, v)| format!("{} {}", v.as_ctype_str(), k))
+                   .collect::<Vec<String>>().join(", "),
+            members.iter().map(|(k, _)| format!("{0}({0})", k))
+                   .collect::<Vec<String>>().join(", ")
         ))
     }
 
@@ -691,6 +692,13 @@ impl Transpiler {
                 Ok(format!("({}){}", new_type.as_ctype_str(), self.transpile_typed_expr_c(rhs, old_type)?)),
 
             SyntaxNode::SelfIdentifier => Ok(format!("this")),
+
+            SyntaxNode::StructInstantiation(name, members) => Ok(format!(
+                "{}({})",
+                name,
+                members.iter().map(|(_, v)| self.transpile_typed_expr_c(v, &Type::from_basic(SimpleType::Void)).unwrap())
+                       .collect::<Vec<String>>().join(", ")
+            )),
 
             other => panic!("{:?} is not a valid expression node!", other)
         }

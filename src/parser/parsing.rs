@@ -87,7 +87,9 @@ pub enum SyntaxNode {
     // Enum type, variant name, variant arguments
     EnumInstantiation(Type, String, IndexMap<String, SyntaxTree>),
     // Struct name and members
-    Struct(String, HashMap<String, Type>),
+    Struct(String, IndexMap<String, Type>),
+    // struct name and members
+    StructInstantiation(String, IndexMap<String, SyntaxTree>),
     // function name, arguments (id, type), return type, body statements
     Function(String, Vec<(String, Type)>, Type, Box<SyntaxTree>),
     // expression to return
@@ -271,7 +273,7 @@ impl Parser {
         assert_token_type!(next_token, OpenCurly);
 
         // get the first member of the struct, also ensures the struct has at least 1 member
-        let mut members: HashMap<String, Type> = HashMap::new();
+        let mut members: IndexMap<String, Type> = IndexMap::new();
         let first_member = self.parse_struct_member()?;
         members.insert(first_member.0, first_member.1);
 
@@ -1527,6 +1529,11 @@ impl Parser {
                         return Ok(SyntaxTree::new(SyntaxNode::FunctionCall(id, arguments), func_call_paren.line_number, func_call_paren.col_number));
                     }
 
+                    TokenType::OpenCurly => { // struct instantiation
+                        let members = self.parse_struct_instantiation_members(&id)?;
+                        return Ok(SyntaxTree::new(SyntaxNode::StructInstantiation(id, members), next_token.line_number, next_token.col_number))
+                    } 
+
                     _ => {
                         self.tokens.push_front(func_call_paren);
                         return Ok(SyntaxTree::new(SyntaxNode::Identifier(id), next_token.line_number, next_token.col_number));
@@ -1538,6 +1545,47 @@ impl Parser {
             TokenType::OpenSquare => self.parse_array_literal(next_token.line_number, next_token.col_number),
             _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Expression)))
         }
+    }
+
+
+    fn parse_struct_instantiation_members(&mut self, struct_id: &str) -> Result<IndexMap<String, SyntaxTree>, Box<dyn Error>> {
+        let mut members: IndexMap<String, SyntaxTree> = IndexMap::new();
+        loop {
+            let next_token = self.tokens.pop_front().unwrap();
+            let id = match next_token.token_type {
+                TokenType::Identifier(id) => id,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+            };
+
+            let next_token = self.tokens.pop_front().unwrap();
+            assert_token_type!(next_token, Colon);
+
+            let expr = self.parse_expression()?;
+            members.insert(id, expr);
+
+            let next_token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Comma => continue,
+                TokenType::CloseCurly => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly)))
+            }
+        }
+
+        // ensure that the members of the instantiation are stored in the same order they are 
+        // declared in the struct declaration 
+        let mut ordered_members: IndexMap<String, SyntaxTree> = IndexMap::new();
+        let struct_type: Type = self.current_symbol_table.borrow().get(&struct_id.to_owned()).unwrap().get_type();
+        match struct_type.basic_type {
+            SimpleType::Struct(_, m) => {
+                for key in m.keys() {
+                    // TODO: make this more efficient by removing the clones
+                    ordered_members.insert(key.clone(), members.get(key).unwrap().clone());
+                }
+            }
+            _ => panic!()
+        }
+
+        Ok(ordered_members)
     }
 
 
