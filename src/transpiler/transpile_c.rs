@@ -700,6 +700,12 @@ impl Transpiler {
                        .collect::<Vec<String>>().join(", ")
             )),
 
+            SyntaxNode::ConcatStr(l, r) => Ok(format!(
+                "{} + {}", 
+                self.transpile_typed_expr_c(l, &Type::from_basic(SimpleType::Str))?,
+                self.transpile_typed_expr_c(r, &Type::from_basic(SimpleType::Str))?
+            )),
+
             other => panic!("{:?} is not a valid expression node!", other)
         }
     }

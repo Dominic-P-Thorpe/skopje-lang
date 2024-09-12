@@ -123,6 +123,7 @@ pub enum SyntaxNode {
     ArrayIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
     // array to get subarray of, type of original array, start index, end index
     SubarrayOperation(Box<SyntaxTree>, Type, usize, usize),
+    ConcatStr(Box<SyntaxTree>, Box<SyntaxTree>),
     // condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
@@ -498,7 +499,14 @@ impl Parser {
 
 
     fn parse_match_stmt(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
-        let match_expr = self.parse_expression()?;
+        // let match_expr = self.parse_expression()?;
+        let next_token = self.tokens.pop_front().unwrap();
+        let match_expr = match next_token.token_type {
+            TokenType::Identifier(id) => SyntaxTree::new(SyntaxNode::Identifier(id), next_token.line_number, next_token.col_number),
+            TokenType::SelfKeyword => SyntaxTree::new(SyntaxNode::SelfIdentifier, next_token.line_number, next_token.col_number),
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+        };
+
         let match_expr_type = get_expr_type(&match_expr, &self.current_symbol_table.borrow())?;
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -1199,7 +1207,7 @@ impl Parser {
     fn parse_concatenation(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let mut root: SyntaxTree = self.parse_scalar_comparisons()?;
         let (root_line, root_col) = (root.start_line, root.start_index);
-
+        
         // if the root is an identifier, check if it is for an enum, in which case it must be an
         // enum instantiation and not a raw type name
         let root_type = match root.node.clone() {
@@ -1229,11 +1237,18 @@ impl Parser {
                     match next_token.token_type {
                         TokenType::DoubleColon => {
                             let right: SyntaxTree = self.parse_scalar_comparisons()?;
-                            root = SyntaxTree::new(SyntaxNode::BinaryOperation(
-                                "::".to_owned(),
-                                Box::new(root),
-                                Box::new(right),
-                            ), root_line, root_col);
+                            if let SimpleType::Str = root_type.basic_type {
+                                root = SyntaxTree::new(
+                                    SyntaxNode::ConcatStr(Box::new(root), Box::new(right),
+                                ), root_line, root_col)
+                            } else {
+                                root = SyntaxTree::new(SyntaxNode::BinaryOperation(
+                                    "::".to_owned(),
+                                    Box::new(root),
+                                    Box::new(right),
+                                ), root_line, root_col);
+                            }
+
                         }
         
                         // End of this level of precedence

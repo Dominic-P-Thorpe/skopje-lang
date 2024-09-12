@@ -84,6 +84,23 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
                 let (left_value, right_value) = (fold_constexpr_index(l), fold_constexpr_index(r));
                 Ok(Type::from_basic(SimpleType::Array(Box::new(left_type), usize::abs_diff(left_value, right_value))))
             }
+
+            "::" => {
+                let left_type = get_expr_type(l, context)?;
+                let right_type = get_expr_type(r, context)?;
+                match (left_type.basic_type, right_type.basic_type) {
+                    (SimpleType::Str, SimpleType::Str) => Ok(Type::from_basic(SimpleType::Str)),
+                    (SimpleType::Array(t1, size1), SimpleType::Array(t2, size2)) => {
+                        if t1.is_compatible_with(&t2) {
+                            return Ok(Type::from_basic(SimpleType::Array(t1, size1 + size2)))
+                        } 
+
+                        panic!()
+                    }
+                    _ => panic!()
+                }
+            }
+
             "." => get_struct_member_type(None, expr, context),
             _ => get_binary_operation_type(op.to_string(), &*l, &*r, context)
         }
@@ -218,6 +235,12 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             Ok(struct_type)
         }
 
+        SyntaxNode::ConcatStr(l, r) => {
+            assert_eq!(get_expr_type(l, context).unwrap().basic_type, SimpleType::Str);
+            assert_eq!(get_expr_type(r, context).unwrap().basic_type, SimpleType::Str);
+            Ok(Type::from_basic(SimpleType::Str))
+        }
+
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }
@@ -229,6 +252,7 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
             SyntaxNode::BinaryOperation(_, left, right) => {
                 let left_type = match &left.node {
                     SyntaxNode::Identifier(id) => context.get(&id).unwrap().get_type(),
+                    SyntaxNode::SelfIdentifier => context.self_ref.clone().unwrap(),
                     SyntaxNode::BinaryOperation(_, _, _) => get_struct_member_type(None, left, context)?,
                     other => panic!("Expected identifier, got {:?}", other)
                 };
@@ -247,6 +271,11 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
             _ => panic!()
         }
 
+        SyntaxNode::FunctionCall(name, _) => match context.get(name).unwrap().get_type().basic_type {
+            SimpleType::Function(rt, _) => Ok(*rt),
+            _ => Ok(right_type.clone())
+        }
+
         SyntaxNode::BinaryOperation(op, left, right) => {
             if op.as_str() != "." {
                 panic!("Expected '.' operator, got {}", op);
@@ -255,7 +284,8 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
             let right_type = get_expr_type(&right, context)?;
             get_struct_member_type(Some(right_type), left, context)
         }
-        _ => panic!()
+
+        other => panic!("Got {:?}", other)
     }
 }
 
