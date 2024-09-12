@@ -444,6 +444,7 @@ impl Scanner {
                             "self" => return Ok(TokenType::SelfKeyword),
                             "break" => return Ok(TokenType::BreakKeyword),
                             "continue" => return Ok(TokenType::ContinueKeyword),
+                            "struct" => return Ok(TokenType::StructKeyword),
                             // is not a keyword, and therefore is an identifier
                             _ => return Ok(TokenType::Identifier(token_text.to_owned()))
                         }

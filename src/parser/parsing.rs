@@ -86,6 +86,8 @@ pub enum SyntaxNode {
     EnumVariant(String, IndexMap<String, Type>),
     // Enum type, variant name, variant arguments
     EnumInstantiation(Type, String, IndexMap<String, SyntaxTree>),
+    // Struct name and members
+    Struct(String, HashMap<String, Type>),
     // function name, arguments (id, type), return type, body statements
     Function(String, Vec<(String, Type)>, Type, Box<SyntaxTree>),
     // expression to return
@@ -194,8 +196,9 @@ impl Parser {
             match &next_token.token_type {
                 TokenType::FnKeyword => top_level_constructs.push(self.parse_function(next_token.line_number, next_token.col_number)?),
                 TokenType::EnumKeyword => top_level_constructs.push(self.parse_enumeration(next_token.line_number, next_token.col_number)?),
+                TokenType::StructKeyword => top_level_constructs.push(self.parse_struct(next_token.line_number, next_token.col_number)?),
                 TokenType::ImplKeyword => self.parse_enum_impl()?,
-                other => panic!("Expected 'fn', 'enum', or 'impl', got {:?}", other)
+                other => panic!("Expected 'fn', 'enum', 'struct', or 'impl', got {:?}", other)
             }
         }
 
@@ -231,6 +234,94 @@ impl Parser {
         let salt = Alphanumeric.sample_string(&mut rng, 16);
         format!("__V_{:#08X}__{}", id_num, salt)
     } 
+
+
+    /// Parses a struct definition from the token stream.
+    ///
+    /// This function expects to find an identifier representing the struct's name,
+    /// followed by an open curly brace `{`, a list of members (each consisting of a name 
+    /// and a type, separated by a colon), and a closing curly brace `}`. The members of 
+    /// the struct are stored in a `HashMap` where the key is the member name and the value 
+    /// is the member type.
+    ///
+    /// # Arguments
+    ///
+    /// * `line_num` - The current line number in the source code where the struct is defined.
+    /// * `col_num` - The current column number in the source code.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` that, on success, contains a `SyntaxTree` representing the parsed struct.
+    /// If the parsing fails, an error is returned.
+    ///
+    /// # Errors
+    ///
+    /// * Returns an error if an unexpected token is encountered, such as when the expected 
+    ///   identifier, open curly brace, comma, or closing curly brace is missing.
+    fn parse_struct(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        // get the identifier of the struct
+        let id_token = self.tokens.pop_front().unwrap();
+        let name: String = match id_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(id_token, ExpectedToken::Identifier)))
+        };
+
+        // ensure the identifier is followed by a {
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, OpenCurly);
+
+        // get the first member of the struct, also ensures the struct has at least 1 member
+        let mut members: HashMap<String, Type> = HashMap::new();
+        let first_member = self.parse_struct_member()?;
+        members.insert(first_member.0, first_member.1);
+
+        // loop until we get to a }, parsing struct members on the way
+        loop {
+            let next_token: Token = self.tokens.pop_front().unwrap();
+            match next_token.token_type {
+                TokenType::Comma => (), // there are more members
+                TokenType::CloseCurly => break, // this is the end of the declaration
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly)))
+            }
+
+            // get the new member
+            let member = self.parse_struct_member()?;
+            members.insert(member.0, member.1);
+        }
+
+        Ok(SyntaxTree::new(SyntaxNode::Struct(name, members), line_num, col_num))
+    }
+
+
+    /// Parses a single member of a struct, which consists of an identifier followed by a colon and 
+    /// a type.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` that, on success, contains a tuple of the member's name (as a `String`) 
+    /// and its type (as a `Type`).
+    /// If the parsing fails, an error is returned.
+    ///
+    /// # Errors
+    ///
+    /// * Returns an error if an unexpected token is encountered, such as when the expected 
+    ///   identifier or colon is missing.
+    fn parse_struct_member(&mut self) -> Result<(String, Type), Box<dyn Error>> {
+        // get the identifier of this member
+        let id_token = self.tokens.pop_front().unwrap();
+        let name: String = match id_token.token_type {
+            TokenType::Identifier(id) => id,
+            _ => return Err(Box::new(ParsingError::UnexpectedToken(id_token, ExpectedToken::Identifier)))
+        };
+
+        // ensure the next token is a :
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, Colon);
+
+        // get the type of the member
+        let member_type = self.parse_type()?;
+        Ok((name, member_type))
+    }
 
 
     /// Parses a function which may have arguments and a return type.

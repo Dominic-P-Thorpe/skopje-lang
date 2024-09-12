@@ -69,6 +69,7 @@ pub enum TokenType {
     DefaultKeyword,
     BreakKeyword,
     ContinueKeyword,
+    StructKeyword,
     StrLiteral(String),
     IntLiteral(u64),
     FloatLiteral(f64),

@@ -22,6 +22,7 @@
 use indexmap::IndexMap;
 use rand::distributions::{Alphanumeric, DistString};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -251,11 +252,25 @@ impl Transpiler {
                 self.transpile_enum(name, variants, enum_behaviours, indent)
             }
 
+            SyntaxNode::Struct(name, members) => self.transpile_struct(name, members, indent),
             SyntaxNode::MatchStmt(_, _, _) => self.transpile_match_stmt(tree, indent),
             SyntaxNode::ContinueStmt => Ok(format!("{}continue;", "\t".repeat(indent))),
             SyntaxNode::BreakStmt => Ok(format!("{}break;", "\t".repeat(indent))),
             other => panic!("{:?} is not a valid node!", other)
         }
+    }
+
+
+    fn transpile_struct(&mut self, name: &str, members: &HashMap<String, Type>, indent: usize) -> Result<String, Box<dyn Error>> {
+        Ok(format!(
+            "\nclass {1} {{\n{0}public:\n\t{2}{0}}};",
+            "\t".repeat(indent),
+            name,
+            members.iter()
+                   .map(|(k, v)| format!("{} {};\n", v.as_ctype_str(), k))
+                   .collect::<Vec<String>>()
+                   .join("\t")
+        ))
     }
 
 
