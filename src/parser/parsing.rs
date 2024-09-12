@@ -289,6 +289,10 @@ impl Parser {
             members.insert(member.0, member.1);
         }
 
+        let struct_type: Type = Type::from_basic(SimpleType::Struct(name.clone(), members.clone()));
+        self.symbol_table_root.borrow_mut().insert(
+            Symbol::new(SymbolType::StructType(name.clone(), struct_type), line_num, col_num)
+        );
         Ok(SyntaxTree::new(SyntaxNode::Struct(name, members), line_num, col_num))
     }
 

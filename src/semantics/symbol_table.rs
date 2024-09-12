@@ -51,6 +51,8 @@ use crate::SyntaxTree;
 pub enum SymbolType {
     /// Represents a variable with a name and a type.
     Variable(String, Type),
+    /// Represents a struct with its name and type
+    StructType(String, Type),
     /// Represents an enumeration with a name and its variants.
     EnumeraionType(String, Type, Vec<Symbol>),
     /// Represents a function with a name, parameters, and a return type.
@@ -67,7 +69,8 @@ impl ToString for SymbolType {
             Self::Variable(name, _) 
             | Self::Function(name, _) 
             | Self::EnumeraionType(name, _, _) 
-            | Self::Behaviour(name, _, _) => name.to_string()
+            | Self::Behaviour(name, _, _) 
+            | Self::StructType(name, _) => name.to_string()
         }
     }
 }
@@ -80,7 +83,8 @@ impl SymbolType {
             Self::Variable(_, t) 
             | Self::Function(_, t) 
             | Self::EnumeraionType(_, t, _) 
-            | Self::Behaviour(_, t, _) => t.clone()   
+            | Self::Behaviour(_, t, _) 
+            | Self::StructType(_, t) => t.clone()   
         }
     }
 }

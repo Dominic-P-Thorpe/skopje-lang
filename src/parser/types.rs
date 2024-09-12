@@ -23,6 +23,7 @@ pub enum SimpleType {
     Tuple(Vec<Type>),
     Array(Box<Type>, usize), // inner type, array size
     Iterator(Box<Type>), // inner type
+    Struct(String, HashMap<String, Type>), // name and members
     Function(Box<Type>, Vec<Type>), // return type, vec of params
     // name of the enum, hashmap of names of variants to their members, which are composed of a 
     // member number used to construct an instance of the enum of that member, and a hashmaps of 
@@ -90,7 +91,7 @@ impl SimpleType {
                 params.iter().map(|p| p.as_ctype_str()).collect::<Vec<String>>().join(", ")
             ),
 
-            Self::Enum(name, _, _, _, _) => name.to_string()
+            Self::Enum(name, _, _, _, _) | Self::Struct(name, _) => name.to_string()
         }
     }
 
@@ -299,5 +300,9 @@ mod tests {
         assert!(SimpleType::I64.is_compatible_with(&SimpleType::I32));
         assert!(SimpleType::U32.is_compatible_with(&SimpleType::U32));
         assert!(SimpleType::U64.is_compatible_with(&SimpleType::I32));
+        assert!(SimpleType::F32.is_compatible_with(&SimpleType::I64));
+        assert!(SimpleType::F32.is_compatible_with(&SimpleType::U32));
+        assert!(SimpleType::F64.is_compatible_with(&SimpleType::I64));
+        assert!(SimpleType::F64.is_compatible_with(&SimpleType::U64));
     }
 }
