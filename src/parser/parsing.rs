@@ -80,55 +80,55 @@ pub enum Pattern {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SyntaxNode {
     Program(Box<SyntaxTree>),
-    // name, variants
+    /// name, variants
     Enumeraion(String, Vec<SyntaxTree>),
-    // name, parameters (param name, param type)
+    /// name, parameters (param name, param type)
     EnumVariant(String, IndexMap<String, Type>),
-    // Enum type, variant name, variant arguments
+    /// Enum type, variant name, variant arguments
     EnumInstantiation(Type, String, IndexMap<String, SyntaxTree>),
-    // Struct name and members
+    /// Struct name and members
     Struct(String, IndexMap<String, Type>),
-    // struct name and members
+    /// struct name and members
     StructInstantiation(String, IndexMap<String, SyntaxTree>),
-    // function name, arguments (id, type), return type, body statements
+    /// function name, arguments (id, type), return type, body statements
     Function(String, Vec<(String, Type)>, Type, Box<SyntaxTree>),
-    // expression to return
+    /// expression to return
     ReturnStmt(Box<SyntaxTree>),
-    // condition, body
+    /// condition, body
     WhileStmt(Box<SyntaxTree>, Box<SyntaxTree>),
-    // Loop variable name, loop var type, expr to loop over, loop body
+    /// Loop variable name, loop var type, expr to loop over, loop body
     ForStmt(String, Type, Box<SyntaxTree>, Box<SyntaxTree>),
     BreakStmt,
     ContinueStmt,
-    // expression to match, patterns to match against and syntax tree to run if match succeeds,
-    // type of the expression to match
-    // Members of vector of patterns are a tuple where the first element is a vector of patterns
-    // and the second is the body to run if any of those patterns are a match
+    /// expression to match, patterns to match against and syntax tree to run if match succeeds,
+    /// type of the expression to match
+    /// Members of vector of patterns are a tuple where the first element is a vector of patterns
+    /// and the second is the body to run if any of those patterns are a match
     MatchStmt(Box<SyntaxTree>, Vec<(Pattern, SyntaxTree)>, Type),
-    // variable name, type, expression
+    /// variable name, type, expression
     LetStmt(String, Type, Box<SyntaxTree>),
-    // variable name, new value expression, type of the variable being reassigned
-    // type is needed so that is can be used when generating the C++ code
+    /// variable name, new value expression, type of the variable being reassigned
+    /// type is needed so that is can be used when generating the C++ code
     ReassignmentStmt(Box<SyntaxTree>, Box<SyntaxTree>, Type),
-    // condition, body, optional else
+    /// condition, body, optional else
     SelectionStatement(Box<SyntaxTree>, Box<SyntaxTree>, Box<Option<SyntaxTree>>),
-    // binary operation, left side, right side
+    /// binary operation, left side, right side
     BinaryOperation(String, Box<SyntaxTree>, Box<SyntaxTree>),
     RightAssocUnaryOperation(String, Box<SyntaxTree>),
     LeftAssocUnaryOperation(String, Box<SyntaxTree>),
-    // target type, source type, expression to cast
+    /// target type, source type, expression to cast
     TypeCast(Type, Type, Box<SyntaxTree>),
     TupleIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
-    // index to get, stmt to index
+    /// index to get, stmt to index
     ArrayIndexingOperation(Box<SyntaxTree>, Box<SyntaxTree>),
-    // array to get subarray of, type of original array, start index, end index
+    /// array to get subarray of, type of original array, start index, end index
     SubarrayOperation(Box<SyntaxTree>, Type, usize, usize),
     ConcatStr(Box<SyntaxTree>, Box<SyntaxTree>),
-    // condition, value if true, value if false
+    /// condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
     MonadicExpr(Box<SyntaxTree>),
-    // function name, arguments
+    /// function name, arguments
     FunctionCall(String, Vec<SyntaxTree>),
     FunctionCallStmt(String, Vec<SyntaxTree>),
     StringLiteral(String),
@@ -137,11 +137,11 @@ pub enum SyntaxNode {
     BoolLiteral(bool),
     TupleLiteral(Vec<SyntaxTree>),
     ArrayLiteral(Vec<SyntaxTree>, Type),
-    // store the type so that if the type is an std::unique_ptr we know to use std::move when we 
-    // want to use it
+    /// store the type so that if the type is an std::unique_ptr we know to use std::move when we 
+    /// want to use it
     Identifier(String),
     SelfIdentifier,
-    // a block of statements represented as a vec, and a pointer to the symbol table of that block
+    /// a block of statements represented as a vec, and a pointer to the symbol table of that block
     StmtBlock(Vec<SyntaxTree>, Rc<RefCell<SymbolTable>>)
 }
 
@@ -905,26 +905,7 @@ impl Parser {
             None => panic!("Semantic error: The identifier {} could not be found!", id)
         }
 
-        let next_token = self.tokens.pop_front().unwrap();
-        let lhs = match next_token.token_type {
-            TokenType::Equal => SyntaxTree::new(SyntaxNode::Identifier(id.clone()), line_num, col_num),
-            TokenType::OpenSquare => {
-                let expr = self.parse_expression()?;
-
-                let next_token = self.tokens.pop_front().unwrap();
-                assert_token_type!(next_token, CloseSquare);
-
-                let next_token = self.tokens.pop_front().unwrap();
-                assert_token_type!(next_token, Equal);
-
-                SyntaxTree::new(SyntaxNode::ArrayIndexingOperation(
-                    Box::new(expr),
-                    Box::new(SyntaxTree::new(SyntaxNode::Identifier(id.clone()), line_num, col_num))
-                ), line_num, col_num)
-            }
-
-            other => panic!("Invalid left expression, found {:?}", other)
-        };
+        let lhs = self.parse_lhs(SyntaxTree::new(SyntaxNode::Identifier(id), line_num, col_num), line_num, col_num)?;
 
         let expr = self.parse_expression()?;
         let expr_type: Type = get_expr_type(&expr, &self.current_symbol_table.borrow()).unwrap();
@@ -937,6 +918,45 @@ impl Parser {
         assert_token_type!(next_token, Semicolon);
 
         Ok(SyntaxTree::new(SyntaxNode::ReassignmentStmt(Box::new(lhs), Box::new(expr), lhs_type), line_num, col_num))
+    }
+
+
+    fn parse_lhs(&mut self, root: SyntaxTree, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        let next_token = self.tokens.pop_front().unwrap();
+        match next_token.token_type {
+            TokenType::Equal => Ok(root),
+            TokenType::OpenSquare => {
+                let expr = self.parse_expression()?;
+
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, CloseSquare);
+
+                self.parse_lhs(SyntaxTree::new(SyntaxNode::ArrayIndexingOperation(
+                    Box::new(expr),
+                    Box::new(root)
+                ), line_num, col_num), line_num, col_num)
+            }
+
+            TokenType::Dot => {
+                let next_token = self.tokens.pop_front().unwrap();
+                let id = match next_token.token_type {
+                    TokenType::Identifier(id) => SyntaxTree::new(
+                        SyntaxNode::Identifier(id), 
+                        next_token.line_number, 
+                        next_token.col_number
+                    ),
+                    _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+                };
+
+                self.parse_lhs(SyntaxTree::new(SyntaxNode::BinaryOperation(
+                    ".".to_owned(), 
+                    Box::new(root),
+                    Box::new(id)
+                ), line_num, col_num), line_num, col_num)
+            }
+
+            other => panic!("Invalid left expression, found {:?}", other)
+        }
     }
 
 
@@ -1458,6 +1478,7 @@ impl Parser {
                     // this is an indexing operation
                     let next_token = self.tokens.pop_front().unwrap();
                     assert_token_type!(next_token, CloseSquare);
+
                     root = match root_type.basic_type {
                         SimpleType::Tuple(_) => SyntaxTree::new(
                             SyntaxNode::TupleIndexingOperation(
@@ -1473,6 +1494,10 @@ impl Parser {
                         ),
                         _ => panic!("Expected tuple or array!")
                     };
+
+                    if let TokenType::Dot = self.tokens.front().unwrap().token_type {
+                        root = self.parse_dot_rhs(root)?
+                    }
                 }
 
                 // End of this level of precedence
@@ -1482,7 +1507,7 @@ impl Parser {
                 }
             }
         }
-
+        
         Ok(root)
     }
 
@@ -1493,42 +1518,42 @@ impl Parser {
 
 
     fn parse_dot(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        // parse_binary_operator!(self, parse_cast, Dot => ".")
-        let mut root: SyntaxTree = self.parse_cast()?;
-        let (root_line, root_col) = (root.start_line, root.start_index);
-
+        let root: SyntaxTree = self.parse_cast()?;
         loop {
-            let next_token = self.tokens.pop_front().unwrap();
-            match next_token.token_type {
-                TokenType::Dot => {
-                    let left_type = get_expr_type(&root, &self.current_symbol_table.borrow())?; 
-                    let right = match left_type.basic_type {
-                        SimpleType::Struct(_, _) => {
-                            let next_token = self.tokens.pop_front().unwrap();
-                            match next_token.token_type {
-                                TokenType::Identifier(id) => SyntaxTree::new(SyntaxNode::Identifier(id), next_token.line_number, next_token.col_number),
-                                _ => panic!()
-                            }
-                        }
-                        _ => self.parse_cast()?
-                    };
-
-                    root = SyntaxTree::new(SyntaxNode::BinaryOperation(
-                        ".".to_owned(),
-                        Box::new(root),
-                        Box::new(right),
-                    ), root_line, root_col);
-                }
-
+            match self.tokens.front().unwrap().token_type {
+                TokenType::Dot => return self.parse_dot_rhs(root),
                 // End of this level of precedence
-                _ => {
-                    self.tokens.push_front(next_token);
-                    break;
-                }
+                _ => break
             }
         }
 
         Ok(root)
+    }
+
+
+    fn parse_dot_rhs(&mut self, left: SyntaxTree) -> Result<SyntaxTree, Box<dyn Error>> {
+        let next_token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, Dot);
+
+        let left_type = get_expr_type(&left, &self.current_symbol_table.borrow())?; 
+        let (left_line, left_col) = (left.start_line, left.start_index);
+        let right = match left_type.basic_type {
+            SimpleType::Struct(_, _) => {
+                let next_token = self.tokens.pop_front().unwrap();
+                match next_token.token_type {
+                    TokenType::Identifier(id) => SyntaxTree::new(SyntaxNode::Identifier(id), next_token.line_number, next_token.col_number),
+                    _ => panic!()
+                }
+            }
+
+            _ => self.parse_cast()?
+        };
+
+        Ok(SyntaxTree::new(SyntaxNode::BinaryOperation(
+            ".".to_owned(),
+            Box::new(left),
+            Box::new(right),
+        ), left_line, left_col))
     }
 
 

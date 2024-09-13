@@ -125,7 +125,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
         SyntaxNode::StringLiteral(_) => Ok(Type::new(SimpleType::Str, false, vec![])),
         SyntaxNode::BoolLiteral(_) => Ok(Type::new(SimpleType::Bool, false, vec![])),
         SyntaxNode::ParenExpr(expr) => get_expr_type(expr, context),
-        SyntaxNode::Identifier(id) => Ok(context.get(id).unwrap().category.get_type()),
+        SyntaxNode::Identifier(id) => Ok(context.get(id).expect(id).category.get_type()),
 
         SyntaxNode::TupleIndexingOperation(index, expr) => {
             match get_expr_type(expr, context).unwrap().basic_type {
@@ -251,9 +251,10 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
         None => match &l.node {
             SyntaxNode::BinaryOperation(_, left, right) => {
                 let left_type = match &left.node {
-                    SyntaxNode::Identifier(id) => context.get(&id).unwrap().get_type(),
+                    SyntaxNode::Identifier(id) => context.get(&id).expect(id).get_type(),
                     SyntaxNode::SelfIdentifier => context.self_ref.clone().unwrap(),
-                    SyntaxNode::BinaryOperation(_, _, _) => get_struct_member_type(None, left, context)?,
+                    SyntaxNode::BinaryOperation(_, _, _) => get_struct_member_type(Some(get_expr_type(right, context)?), left, context)?,
+                    SyntaxNode::ArrayIndexingOperation(_, array) => get_array_inner_type(&get_expr_type(array, context)?),
                     other => panic!("Expected identifier, got {:?}", other)
                 };
                 return get_struct_member_type(Some(left_type), &right, context);
@@ -284,6 +285,8 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
             let right_type = get_expr_type(&right, context)?;
             get_struct_member_type(Some(right_type), left, context)
         }
+
+        SyntaxNode::ArrayIndexingOperation(_, array) => Ok(get_array_inner_type(&get_expr_type(array, context)?)),
 
         other => panic!("Got {:?}", other)
     }
@@ -385,7 +388,6 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
 
 fn get_enum_expr_return_type(behaviours: HashMap<String, Symbol>, tree: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
     let mut behaviours = behaviours;
-    // println!("Behaviours: {:#?}", behaviours);
     match &tree.node {
         SyntaxNode::FunctionCall(id, _) => match behaviours.get(id).unwrap().clone().category {
             SymbolType::Behaviour(_, behaviour_type, _) => {
@@ -436,6 +438,20 @@ pub fn get_l_expr_type(expr: &SyntaxTree, symbol_table: &SymbolTable) -> Result<
     match &expr.node {
         SyntaxNode::Identifier(id) => Ok(symbol_table.get(id).unwrap().get_type()),
         SyntaxNode::ArrayIndexingOperation(_, expr) => Ok(get_array_inner_type(&get_l_expr_type(expr, symbol_table).unwrap())),
+        SyntaxNode::BinaryOperation(op, l, r) => {
+            assert_eq!(op.as_str(), ".");
+            let right_id = match &r.node {
+                SyntaxNode::Identifier(id) => id,
+                other => panic!("Expected identifier, got {:?}", other)
+            };
+
+            let left_type = get_l_expr_type(l, symbol_table)?;
+            match left_type.basic_type {
+                SimpleType::Struct(_, members) => Ok(members.get(right_id).unwrap().clone()),
+                _ => panic!()
+            }
+        }
+
         other => panic!("Invalid node {:?} in l-expression", other)
     }
 }

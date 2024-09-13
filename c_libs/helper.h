@@ -143,13 +143,7 @@ template <typename T, std::size_t N, typename... U>
 std::array<T, N> make_array(U&&... values) {
     static_assert(sizeof...(values) == N, "Number of values must match the size of the array.");
 
-    std::array<T, N> arr;
-    T temp[] = { static_cast<T>(std::forward<U>(values))... };
-    
-    for (std::size_t i = 0; i < N; ++i) {
-        arr[i] = temp[i];
-    }
-
+    std::array<T, N> arr = { static_cast<T>(std::forward<U>(values))... };
     return arr;
 }
 
