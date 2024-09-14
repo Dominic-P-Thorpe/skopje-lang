@@ -51,6 +51,7 @@
 //!     Err(e) => eprintln!("Type error: {:?}", e),
 //! }
 //! ```
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -241,6 +242,14 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             Ok(Type::from_basic(SimpleType::Str))
         }
 
+        SyntaxNode::TernaryExpression(cond, if_true, if_false) => {
+            let if_true_type = get_expr_type(if_true.borrow(), context)?;
+            let if_false_type = get_expr_type(if_false.borrow(), context)?;
+            assert_eq!(get_expr_type(cond.borrow(), context)?, Type::from_basic(SimpleType::Bool));
+            assert!(if_true_type.is_compatible_with(&if_false_type));
+            Ok(if_true_type)
+        }
+
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }
@@ -380,7 +389,15 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
                 _ => panic!()
             }
         }
-        "==" | "!=" => unimplemented!("Have not yet implemented equality!"),
+
+        "==" | "!=" => {
+            if l_type.is_compatible_with(&r_type) {
+                return Ok(Type::from_basic(SimpleType::Bool))
+            }
+
+            Err(Box::new(TypeError::new(vec![l_type], r_type)))
+        }
+
         _ => panic!("Did not recognise operator {}", op)
     }
 } 
