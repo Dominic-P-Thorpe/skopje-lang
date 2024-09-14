@@ -87,7 +87,7 @@ pub enum SyntaxNode {
     /// Enum type, variant name, variant arguments
     EnumInstantiation(Type, String, IndexMap<String, SyntaxTree>),
     /// Struct name and members
-    Struct(String, IndexMap<String, Type>),
+    Struct(String, IndexMap<String, Type>, HashMap<String, SyntaxTree>),
     /// struct name and members
     StructInstantiation(String, IndexMap<String, SyntaxTree>),
     /// function name, arguments (id, type), return type, body statements
@@ -291,11 +291,47 @@ impl Parser {
             members.insert(member.0, member.1);
         }
 
-        let struct_type: Type = Type::from_basic(SimpleType::Struct(name.clone(), members.clone()));
+        let next_token: &Token = self.tokens.front().unwrap();
+        let methods: HashMap<String, SyntaxTree> = match next_token.token_type {
+            TokenType::WithKeyword => {
+                self.tokens.pop_front();
+                self.parse_methods()?
+            }
+            _ => HashMap::new()
+        };
+
+        let method_types: HashMap<String, Box<Type>> = methods.iter().map(|(k, v)| (k.clone(), Box::new(get_function_type(v)))).collect();
+        let struct_type: Type = Type::from_basic(SimpleType::Struct(name.clone(), members.clone(), method_types));
         self.symbol_table_root.borrow_mut().insert(
             Symbol::new(SymbolType::StructType(name.clone(), struct_type), line_num, col_num)
         );
-        Ok(SyntaxTree::new(SyntaxNode::Struct(name, members), line_num, col_num))
+        Ok(SyntaxTree::new(SyntaxNode::Struct(name, members, methods), line_num, col_num))
+    }
+
+
+    fn parse_methods(&mut self) -> Result<HashMap<String, SyntaxTree>, Box<dyn Error>> {
+        let mut methods: HashMap<String, SyntaxTree> = HashMap::new();
+
+        let next_token: Token = self.tokens.pop_front().unwrap();
+        assert_token_type!(next_token, OpenCurly);
+
+        loop {
+            let next_token: Token = self.tokens.pop_front().unwrap();
+            let next_function = match next_token.token_type {
+                TokenType::FnKeyword => self.parse_function(next_token.line_number, next_token.col_number)?,
+                TokenType::CloseCurly => break,
+                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly)))
+            };
+
+            match &next_function.node {
+                SyntaxNode::Function(name, _, _, _) => { 
+                    methods.insert(name.to_owned(), next_function); 
+                }
+                _ => panic!()
+            }
+        }
+        
+        Ok(methods)
     }
 
 
@@ -1537,10 +1573,27 @@ impl Parser {
         let left_type = get_expr_type(&left, &self.current_symbol_table.borrow())?; 
         let (left_line, left_col) = (left.start_line, left.start_index);
         let right = match left_type.basic_type {
-            SimpleType::Struct(_, _) => {
+            SimpleType::Struct(_, _, _) => {
                 let next_token = self.tokens.pop_front().unwrap();
+                let following_token = self.tokens.front().unwrap();
                 match next_token.token_type {
-                    TokenType::Identifier(id) => SyntaxTree::new(SyntaxNode::Identifier(id), next_token.line_number, next_token.col_number),
+                    TokenType::Identifier(id) => {
+                        match following_token.token_type {
+                            TokenType::OpenParen => {
+                                self.tokens.pop_front();
+                                SyntaxTree::new(
+                                    SyntaxNode::FunctionCall(id, self.parse_func_args()?), 
+                                    next_token.line_number, 
+                                    next_token.col_number
+                                )
+                            }
+                            _ => SyntaxTree::new(
+                                SyntaxNode::Identifier(id), 
+                                next_token.line_number, 
+                                next_token.col_number
+                            ),
+                        }
+                    }
                     _ => panic!()
                 }
             }
@@ -1650,7 +1703,7 @@ impl Parser {
         let mut ordered_members: IndexMap<String, SyntaxTree> = IndexMap::new();
         let struct_type: Type = self.current_symbol_table.borrow().get(&struct_id.to_owned()).unwrap().get_type();
         match struct_type.basic_type {
-            SimpleType::Struct(_, m) => {
+            SimpleType::Struct(_, m, _) => {
                 for key in m.keys() {
                     // TODO: make this more efficient by removing the clones
                     ordered_members.insert(key.clone(), members.get(key).unwrap().clone());

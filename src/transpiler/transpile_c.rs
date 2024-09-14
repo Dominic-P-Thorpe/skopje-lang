@@ -22,6 +22,7 @@
 use indexmap::IndexMap;
 use rand::distributions::{Alphanumeric, DistString};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -243,7 +244,7 @@ impl Transpiler {
             }
 
             SyntaxNode::Enumeraion(name, variants) => self.transpile_enum(name, variants, indent),
-            SyntaxNode::Struct(name, members) => self.transpile_struct(name, members, indent),
+            SyntaxNode::Struct(name, members, methods) => self.transpile_struct(name, members, methods, indent),
             SyntaxNode::MatchStmt(_, _, _) => self.transpile_match_stmt(tree, indent),
             SyntaxNode::ContinueStmt => Ok(format!("{}continue;", "\t".repeat(indent))),
             SyntaxNode::BreakStmt => Ok(format!("{}break;", "\t".repeat(indent))),
@@ -252,9 +253,15 @@ impl Transpiler {
     }
 
 
-    fn transpile_struct(&mut self, name: &str, members: &IndexMap<String, Type>, indent: usize) -> Result<String, Box<dyn Error>> {
+    fn transpile_struct(
+        &mut self, 
+        name: &str, 
+        members: &IndexMap<String, Type>, 
+        methods: &HashMap<String, SyntaxTree>, 
+        indent: usize
+    ) -> Result<String, Box<dyn Error>> {
         Ok(format!(
-            "\nclass {1} {{\n{0}public:\n\t{2}\n\t{1}({3}) : {4} {{}}\n{0}}};",
+            "\nclass {1} {{\n{0}public:\n\t{2}\n\t{1}({3}) : {4} {{}}{5}\n{0}}};",
             "\t".repeat(indent),
             name,
             members.iter().map(|(k, v)| format!("{} {};\n", v.as_ctype_str(), k))
@@ -262,7 +269,9 @@ impl Transpiler {
             members.iter().map(|(k, v)| format!("{} {}", v.as_ctype_str(), k))
                    .collect::<Vec<String>>().join(", "),
             members.iter().map(|(k, _)| format!("{0}({0})", k))
-                   .collect::<Vec<String>>().join(", ")
+                   .collect::<Vec<String>>().join(", "),
+            methods.iter().map(|(_, v)| self.transpile_c_tree(v, indent + 1).unwrap())
+                   .collect::<Vec<String>>().join("")
         ))
     }
 

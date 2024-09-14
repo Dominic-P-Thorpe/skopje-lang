@@ -219,7 +219,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             // check that all the members of the instance are the correct type
             let struct_type: Type = context.get(name).unwrap().get_type();
             match &struct_type.basic_type {
-                SimpleType::Struct(_, type_members) => {
+                SimpleType::Struct(_, type_members, _) => {
                     // check that the instance has the right number of members
                     assert_eq!(type_members.len(), instance_members.len());
                     for (m, t) in type_members.iter() {
@@ -277,7 +277,7 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
     
     match &l.node {
         SyntaxNode::Identifier(id) => match right_type.basic_type {
-            SimpleType::Struct(_, members) => Ok(members.get(id).unwrap().clone()),
+            SimpleType::Struct(_, members, _) => Ok(members.get(id).unwrap().clone()),
             _ => panic!()
         }
 
@@ -454,12 +454,23 @@ pub fn get_l_expr_type(expr: &SyntaxTree, symbol_table: &SymbolTable) -> Result<
 
             let left_type = get_l_expr_type(l, symbol_table)?;
             match left_type.basic_type {
-                SimpleType::Struct(_, members) => Ok(members.get(right_id).unwrap().clone()),
+                SimpleType::Struct(_, members, _) => Ok(members.get(right_id).unwrap().clone()),
                 _ => panic!()
             }
         }
 
         other => panic!("Invalid node {:?} in l-expression", other)
+    }
+}
+
+
+pub fn get_function_type(func: &SyntaxTree) -> Type {
+    match &func.node {
+        SyntaxNode::Function(_, args, rt, _) => {
+            let arg_types = args.iter().map(|(_, t)| t).cloned().collect();
+            Type::new(SimpleType::Function(Box::new(rt.clone()), arg_types), false, vec![])
+        }
+        _ => panic!()
     }
 }
 

@@ -438,7 +438,7 @@ impl Scanner {
                             "false" => return Ok(TokenType::BoolLiteral(false)),
                             "match" => return Ok(TokenType::MatchKeyword),
                             "as" => return Ok(TokenType::AsKeyword),
-                            "impl" => return Ok(TokenType::ImplKeyword),
+                            "with" => return Ok(TokenType::WithKeyword),
                             "trait" => return Ok(TokenType::TraitKeyword),
                             "default" => return Ok(TokenType::DefaultKeyword),
                             "self" => return Ok(TokenType::SelfKeyword),
