@@ -406,16 +406,6 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
 fn get_enum_expr_return_type(behaviours: HashMap<String, Symbol>, tree: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
     let mut behaviours = behaviours;
     match &tree.node {
-        SyntaxNode::FunctionCall(id, _) => match behaviours.get(id).unwrap().clone().category {
-            SymbolType::Behaviour(_, behaviour_type, _) => {
-                match behaviour_type.basic_type {
-                    SimpleType::Function(return_type, _) => Ok(*return_type),
-                    _ => panic!()
-                }
-            },
-            _ => panic!()
-        }
-
         SyntaxNode::BinaryOperation(op, left, right) => {
             if op.as_str() != "." {
                 panic!("Expected '.' operator, got {}", op)

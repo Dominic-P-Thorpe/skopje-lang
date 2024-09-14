@@ -281,11 +281,6 @@ impl Type {
     pub fn is_compatible_with(&self, other: &Self) -> bool {
         self.basic_type.is_compatible_with(&other.basic_type)
     }
-
-
-    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Symbol) {
-        self.basic_type.add_behaviour(behaviour_name, behaviour);
-    }
 }
 
 

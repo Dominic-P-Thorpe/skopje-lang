@@ -43,7 +43,6 @@ use std::rc::{Rc, Weak};
 use std::collections::HashMap;
 
 use crate::parser::types::{SimpleType, Type};
-use crate::SyntaxTree;
 
 
 /// Represents different types of symbols that can be stored in the symbol table.
@@ -56,9 +55,7 @@ pub enum SymbolType {
     /// Represents an enumeration with a name and its variants.
     EnumeraionType(String, Type, Vec<Symbol>),
     /// Represents a function with a name, parameters, and a return type.
-    Function(String, Type),
-    /// Behaviour name, function signature, associated syntax tree
-    Behaviour(String, Type, SyntaxTree)
+    Function(String, Type)
 }
 
 
@@ -68,8 +65,7 @@ impl ToString for SymbolType {
         match self {
             Self::Variable(name, _) 
             | Self::Function(name, _) 
-            | Self::EnumeraionType(name, _, _) 
-            | Self::Behaviour(name, _, _) 
+            | Self::EnumeraionType(name, _, _)
             | Self::StructType(name, _) => name.to_string()
         }
     }
@@ -82,8 +78,7 @@ impl SymbolType {
         match self {
             Self::Variable(_, t) 
             | Self::Function(_, t) 
-            | Self::EnumeraionType(_, t, _) 
-            | Self::Behaviour(_, t, _) 
+            | Self::EnumeraionType(_, t, _)
             | Self::StructType(_, t) => t.clone()   
         }
     }
@@ -267,20 +262,5 @@ impl SymbolTable {
         let child = SymbolTable::new(Some(Rc::downgrade(parent)));
         parent.borrow_mut().children.push(Rc::clone(&child));
         child
-    }
-
-
-    pub fn replace_symbol(&mut self, old_name: &str, new_symbol: Symbol) {
-        match self.table.get(old_name) {
-            Some(_) => {
-                self.table.insert(old_name.to_string(), new_symbol);
-                ()
-            }
-
-            None => match &self.parent {
-                Some(p) => p.upgrade().unwrap().borrow_mut().replace_symbol(old_name, new_symbol),
-                None => (),
-            },
-        };
     }
 }

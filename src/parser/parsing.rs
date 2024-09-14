@@ -200,7 +200,6 @@ impl Parser {
                 TokenType::FnKeyword => top_level_constructs.push(self.parse_function(next_token.line_number, next_token.col_number)?),
                 TokenType::EnumKeyword => top_level_constructs.push(self.parse_enumeration(next_token.line_number, next_token.col_number)?),
                 TokenType::StructKeyword => top_level_constructs.push(self.parse_struct(next_token.line_number, next_token.col_number)?),
-                TokenType::ImplKeyword => self.parse_enum_impl()?,
                 other => panic!("Expected 'fn', 'enum', 'struct', or 'impl', got {:?}", other)
             }
         }
@@ -1921,85 +1920,6 @@ impl Parser {
             next_token.line_number, next_token.col_number
         ))
     }
-
-
-    /// Parses an enum implementation after the "impl" keyword has already been consumed
-    fn parse_enum_impl(&mut self) -> Result<(), Box<dyn Error>> {
-        let next_token = self.tokens.pop_front().unwrap();
-        let enum_name = match next_token.token_type {
-            TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
-        };
-        let enum_name = enum_name.as_str();
-
-        let mut enum_type = self.current_symbol_table.borrow().get(&enum_name.to_owned()).unwrap().get_type();
-
-        let next_token = self.tokens.pop_front().unwrap();
-        assert_token_type!(next_token, OpenCurly);
-
-        // create a new scope in the symbol table for the impl block
-        self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
-        self.current_symbol_table.borrow_mut().self_ref = Some(enum_type.clone());
-
-        let mut behaviours: Vec<(String, Symbol)> = vec![];
-        loop {
-            let next_token = self.tokens.pop_front().unwrap();
-            match next_token.token_type {
-                TokenType::CloseCurly => break, // end of impl  block
-                TokenType::FnKeyword => {
-                    let (line, col) = (next_token.line_number, next_token.col_number);
-                    let function = self.parse_function(next_token.line_number, next_token.col_number)?;
-                    // add the new behaviour function to the list of behaviours available to the 
-                    // value referred to if the programmer uses "self"
-                    match &function.node {
-                        SyntaxNode::Function(name, _, _, _) => {
-                            // get the type of this function from the context
-                            let function_type = self.current_symbol_table.borrow().get(&name).unwrap().get_type();
-                            let behaviour_symbol = Symbol::new(
-                                SymbolType::Behaviour(name.clone(), function_type, function.clone()), 
-                                line, col
-                            );
-                            
-                            // add the function to the enum's behaviours
-                            match &mut self.current_symbol_table.borrow_mut().self_ref {
-                                Some(self_type) => {
-                                    self_type.add_behaviour(name.to_string(), behaviour_symbol.clone())
-                                }
-                                None => panic!()
-                            };
-
-                            // record all the encountered behaviours in the behaviours array so that
-                            // they can be added to the enum's type in the main symbol table later
-                            // on
-                            behaviours.push((name.to_string(), behaviour_symbol))
-                        }
-                        _ => panic!()
-                    }
-                },
-
-                _ => panic!()
-            }
-        }
-
-        for (name, function_type) in &behaviours {
-            enum_type.add_behaviour(name.to_string(), function_type.clone());
-        }
-
-        self.current_symbol_table.borrow_mut().replace_symbol(
-            enum_name, 
-            Symbol::new(SymbolType::EnumeraionType(enum_name.to_owned(), enum_type, behaviours.clone().iter().map(|(_, t)| t).cloned().collect()), 
-            0, 0)
-        );
-
-        // restore the symbol table to the one from outside the impl block
-        let parent_symbol_table = self.current_symbol_table
-                                      .borrow()
-                                      .parent.as_ref()
-                                      .unwrap()
-                                      .upgrade().unwrap();
-        self.current_symbol_table = parent_symbol_table;
-        Ok(())
-    }
 }
 
 
@@ -2008,14 +1928,6 @@ mod tests {
     use crate::Scanner;
 
     use super::Parser;
-
-
-    #[test]
-    fn test_basic_enum_impl() {
-        let scanner = Scanner::new("tests/test_basic_enum_impl.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
-        parser.parse().unwrap();
-    }
 
 
     #[test]

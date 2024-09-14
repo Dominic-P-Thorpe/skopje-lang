@@ -28,7 +28,7 @@ use std::io::Write;
 use std::rc::Rc;
 
 use crate::parser::types::{Type, SimpleType};
-use crate::semantics::symbol_table::{Symbol, SymbolTable, SymbolType};
+use crate::semantics::symbol_table::SymbolTable;
 use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type};
 use crate::{Pattern, SyntaxNode, SyntaxTree};
 
@@ -242,15 +242,7 @@ impl Transpiler {
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
             }
 
-            SyntaxNode::Enumeraion(name, variants) => {
-                let enum_behaviours = match self.symbol_table.borrow().get(name).unwrap().category {
-                    SymbolType::EnumeraionType(_, _, behaviours) => behaviours,
-                    _ => panic!()
-                };
-
-                self.transpile_enum(name, variants, enum_behaviours, indent)
-            }
-
+            SyntaxNode::Enumeraion(name, variants) => self.transpile_enum(name, variants, indent),
             SyntaxNode::Struct(name, members) => self.transpile_struct(name, members, indent),
             SyntaxNode::MatchStmt(_, _, _) => self.transpile_match_stmt(tree, indent),
             SyntaxNode::ContinueStmt => Ok(format!("{}continue;", "\t".repeat(indent))),
@@ -715,7 +707,6 @@ impl Transpiler {
         &mut self, 
         name: &String, // name of the enum to transpile
         variants: &Vec<SyntaxTree>, // variants the enum may take
-        behaviours: Vec<Symbol>, // behaviours contained by the enum
         indent: usize // current output file indentation level
     ) -> Result<String, Box<dyn Error>> {
         let string = format!("
@@ -745,8 +736,6 @@ public:
     Tag getTag() {{ 
         return this->tag; 
     }}
-
-    {4}
 
 
 private:
@@ -785,12 +774,7 @@ private:
                     ),
                     _ => panic!()
                 }
-            ).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent))),
-
-            behaviours.iter().map(|behaviour| match &behaviour.category {
-                SymbolType::Behaviour(_, _, tree) => self.transpile_c_tree(&tree, indent + 1).unwrap(),
-                _ => panic!()
-            }).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent)))
+            ).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent)))
         );
         Ok(string)
     }
