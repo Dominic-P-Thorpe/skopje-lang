@@ -291,6 +291,13 @@ impl Parser {
             members.insert(member.0, member.1);
         }
 
+        let old_symbol_table = self.current_symbol_table.clone();
+        self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
+        let self_symbol = Symbol::new(SymbolType::StructType(String::from("self"), 
+            Type::from_basic(SimpleType::Struct(name.clone(), members.clone(), HashMap::new()))
+        ), id_token.line_number, id_token.col_number);
+        self.current_symbol_table.borrow_mut().insert(self_symbol);
+        
         let next_token: &Token = self.tokens.front().unwrap();
         let methods: HashMap<String, SyntaxTree> = match next_token.token_type {
             TokenType::WithKeyword => {
@@ -299,6 +306,8 @@ impl Parser {
             }
             _ => HashMap::new()
         };
+
+        self.current_symbol_table = old_symbol_table.clone();
 
         let method_types: HashMap<String, Box<Type>> = methods.iter().map(|(k, v)| (k.clone(), Box::new(get_function_type(v)))).collect();
         let struct_type: Type = Type::from_basic(SimpleType::Struct(name.clone(), members.clone(), method_types));

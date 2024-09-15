@@ -209,8 +209,8 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
         },
 
         SyntaxNode::SelfIdentifier => {
-            match &context.self_ref {
-                Some(self_ref) => Ok(self_ref.clone()),
+            match &context.get(&String::from("self")) {
+                Some(self_ref) => Ok(self_ref.get_type()),
                 None => panic!("Using self is not valid in this context!")
             }
         }
@@ -261,7 +261,7 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
             SyntaxNode::BinaryOperation(_, left, right) => {
                 let left_type = match &left.node {
                     SyntaxNode::Identifier(id) => context.get(&id).expect(id).get_type(),
-                    SyntaxNode::SelfIdentifier => context.self_ref.clone().unwrap(),
+                    SyntaxNode::SelfIdentifier => context.get(&String::from("self")).unwrap().get_type(),
                     SyntaxNode::BinaryOperation(_, _, _) => get_struct_member_type(Some(get_expr_type(right, context)?), left, context)?,
                     SyntaxNode::ArrayIndexingOperation(_, array) => get_array_inner_type(&get_expr_type(array, context)?),
                     other => panic!("Expected identifier, got {:?}", other)
@@ -281,8 +281,13 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
             _ => panic!()
         }
 
-        SyntaxNode::FunctionCall(name, _) => match context.get(name).unwrap().get_type().basic_type {
-            SimpleType::Function(rt, _) => Ok(*rt),
+        SyntaxNode::FunctionCall(name, _) => match right_type.basic_type {
+            SimpleType::Struct(_, _, methods) => {
+                match &methods.get(name).unwrap().basic_type {
+                    SimpleType::Function(rt, _) => Ok(*rt.clone()),
+                    _ => panic!()
+                }
+            }
             _ => Ok(right_type.clone())
         }
 
