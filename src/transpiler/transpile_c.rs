@@ -994,6 +994,16 @@ mod test {
 
 
     #[test]
+    fn test_struct_with_methods() {
+        let scanner = Scanner::new("tests/test_struct_with_methods.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
     fn test_runge_kutta() {
         let scanner = Scanner::new("tests/test_runge_kutta.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);

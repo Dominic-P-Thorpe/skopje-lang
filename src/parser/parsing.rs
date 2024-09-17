@@ -325,7 +325,6 @@ impl Parser {
         assert_token_type!(next_token, OpenCurly);
 
         loop {
-            println!("{:#?}", self.current_symbol_table);
             let next_token: Token = self.tokens.pop_front().unwrap();
             let next_function = match next_token.token_type {
                 TokenType::FnKeyword => self.parse_function(next_token.line_number, next_token.col_number)?,
