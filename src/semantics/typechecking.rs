@@ -285,7 +285,7 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
             SimpleType::Struct(_, _, methods) => {
                 match &methods.get(name).unwrap().basic_type {
                     SimpleType::Function(rt, _) => Ok(*rt.clone()),
-                    _ => panic!()
+                    other => panic!("{:?}", other)
                 }
             }
             _ => Ok(right_type.clone())

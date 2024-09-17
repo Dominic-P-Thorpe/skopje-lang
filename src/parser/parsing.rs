@@ -325,6 +325,7 @@ impl Parser {
         assert_token_type!(next_token, OpenCurly);
 
         loop {
+            println!("{:#?}", self.current_symbol_table);
             let next_token: Token = self.tokens.pop_front().unwrap();
             let next_function = match next_token.token_type {
                 TokenType::FnKeyword => self.parse_function(next_token.line_number, next_token.col_number)?,
@@ -333,8 +334,16 @@ impl Parser {
             };
 
             match &next_function.node {
-                SyntaxNode::Function(name, _, _, _) => { 
-                    methods.insert(name.to_owned(), next_function); 
+                SyntaxNode::Function(name, _, _, _) => {
+                    methods.insert(name.to_owned(), next_function.clone());
+                    let func_type: Type = get_function_type(&next_function);
+                    let func_symbol = Symbol::new(SymbolType::Function(name.to_owned(), func_type), 0, 0);
+                    let mut self_type = self.current_symbol_table.borrow_mut()
+                                             .get(&String::from("self")).unwrap()
+                                             .get_type();
+                    self_type.basic_type.add_behaviour(name.to_string(), func_symbol);
+                    let struct_symbol = Symbol::new(SymbolType::StructType(String::from("self"), self_type), 0, 0);
+                    self.current_symbol_table.borrow_mut().insert(struct_symbol);
                 }
                 _ => panic!()
             }

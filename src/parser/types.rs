@@ -1,5 +1,5 @@
 use indexmap::IndexMap;
-use std::{collections::HashMap, error::Error};
+use std::{borrow::Borrow, collections::HashMap, error::Error};
 
 use crate::semantics::symbol_table::{Symbol, SymbolTable};
 
@@ -180,8 +180,11 @@ impl SimpleType {
 
     pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Symbol) {
         match self {
-            Self::Enum(_, _, _, items, _) => {
-                items.insert(behaviour_name, behaviour);
+            Self::Enum(_, _, _, methods, _) => {
+                methods.insert(behaviour_name, behaviour);
+            }
+            Self::Struct(_, _, methods) => {
+                methods.insert(behaviour_name, Box::new(behaviour.borrow().get_type()));
             }
             _ => panic!()
         }
