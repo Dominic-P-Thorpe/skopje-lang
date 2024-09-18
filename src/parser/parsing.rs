@@ -81,7 +81,7 @@ pub enum Pattern {
 pub enum SyntaxNode {
     Program(Box<SyntaxTree>),
     /// name, variants
-    Enumeraion(String, Vec<SyntaxTree>),
+    Enumeraion(String, Vec<SyntaxTree>, HashMap<String, SyntaxTree>),
     /// name, parameters (param name, param type)
     EnumVariant(String, IndexMap<String, Type>),
     /// Enum type, variant name, variant arguments
@@ -291,13 +291,18 @@ impl Parser {
             members.insert(member.0, member.1);
         }
 
+        // create a new frame in the symbol table and set the current symbol tableto the new one
         let old_symbol_table = self.current_symbol_table.clone();
         self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
+
+        // create a new symbol for the new struct, call it self as that is how it will be referred
+        // to in the definition context, and add it to the symbol table
         let self_symbol = Symbol::new(SymbolType::StructType(String::from("self"), 
             Type::from_basic(SimpleType::Struct(name.clone(), members.clone(), HashMap::new()))
         ), id_token.line_number, id_token.col_number);
         self.current_symbol_table.borrow_mut().insert(self_symbol);
         
+        // get the methods associated with the struct (if any)
         let next_token: &Token = self.tokens.front().unwrap();
         let methods: HashMap<String, SyntaxTree> = match next_token.token_type {
             TokenType::WithKeyword => {
@@ -307,9 +312,13 @@ impl Parser {
             _ => HashMap::new()
         };
 
+        // restore the old symbol table now that we are done with the struct definition context
         self.current_symbol_table = old_symbol_table.clone();
 
-        let method_types: HashMap<String, Box<Type>> = methods.iter().map(|(k, v)| (k.clone(), Box::new(get_function_type(v)))).collect();
+        // get the type signatures of the methods and use them to construct the final struct types
+        let method_types: HashMap<String, Box<Type>> = methods.iter()
+                                                              .map(|(k, v)| (k.clone(), Box::new(get_function_type(v))))
+                                                              .collect();
         let struct_type: Type = Type::from_basic(SimpleType::Struct(name.clone(), members.clone(), method_types));
         self.symbol_table_root.borrow_mut().insert(
             Symbol::new(SymbolType::StructType(name.clone(), struct_type), line_num, col_num)
@@ -336,11 +345,10 @@ impl Parser {
                 SyntaxNode::Function(name, _, _, _) => {
                     methods.insert(name.to_owned(), next_function.clone());
                     let func_type: Type = get_function_type(&next_function);
-                    let func_symbol = Symbol::new(SymbolType::Function(name.to_owned(), func_type), 0, 0);
                     let mut self_type = self.current_symbol_table.borrow_mut()
                                              .get(&String::from("self")).unwrap()
                                              .get_type();
-                    self_type.basic_type.add_behaviour(name.to_string(), func_symbol);
+                    self_type.basic_type.add_behaviour(name.to_string(), func_type);
                     let struct_symbol = Symbol::new(SymbolType::StructType(String::from("self"), self_type), 0, 0);
                     self.current_symbol_table.borrow_mut().insert(struct_symbol);
                 }
@@ -760,6 +768,7 @@ impl Parser {
             TokenType::StrLiteral(literal) => Ok(Pattern::StrLiteralPattern(self.generate_random_variable(), literal)),
             TokenType::IntLiteral(literal) => self.parse_int_range_pattern(literal.try_into().unwrap()),
             TokenType::FloatLiteral(literal) => Ok(Pattern::FloatLiteralPattern(self.generate_random_variable(), literal)),
+            TokenType::SelfKeyword => self.parse_identifier_or_enum_pattern("self".to_owned()),
             TokenType::OpenParen => self.parse_tuple_pattern(),
             TokenType::OpenSquare => self.parse_array_pattern(),
             TokenType::DoubleDot => self.parse_leq_range_pattern(),
@@ -1590,7 +1599,7 @@ impl Parser {
         let left_type = get_expr_type(&left, &self.current_symbol_table.borrow())?; 
         let (left_line, left_col) = (left.start_line, left.start_index);
         let right = match left_type.basic_type {
-            SimpleType::Struct(_, _, _) => {
+            SimpleType::Struct(_, _, _) | SimpleType::Enum(_, _, _, _, _) => {
                 let next_token = self.tokens.pop_front().unwrap();
                 let following_token = self.tokens.front().unwrap();
                 match next_token.token_type {
@@ -1909,17 +1918,45 @@ impl Parser {
         };
 
         let next_token = self.tokens.pop_front().unwrap();
-        assert_token_type!(next_token, Equal);
+        assert_token_type!(next_token, OpenCurly);
 
         let variants = self.parse_enum_variants()?;
         let variant_data = self.get_enum_variants_data(&variants);
 
-        let t: Type = Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data, None, HashMap::new(), vec![]));
+        // create a new frame in the symbol table and set the current symbol tableto the new one
+        let old_symbol_table = self.current_symbol_table.clone();
+        self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
+
+        // create a new symbol for the new struct, call it self as that is how it will be referred
+        // to in the definition context, and add it to the symbol table
+        let self_symbol = Symbol::new(SymbolType::StructType(
+            "self".to_owned(),
+            Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data.clone(), None, HashMap::new(), vec![])) 
+        ), 0, 0);
+        self.current_symbol_table.borrow_mut().insert(self_symbol);
+
+        let next_token = self.tokens.front().unwrap();
+        let methods: HashMap<String, SyntaxTree> = match next_token.token_type {
+            TokenType::WithKeyword => {
+                self.tokens.pop_front();
+                self.parse_methods()?
+            }
+            _ => HashMap::new()
+        };
+
+        // restore the old symbol table now that we are done with the struct definition context
+        self.current_symbol_table = old_symbol_table.clone();
+        
+        let method_types: HashMap<String, Box<Type>> = methods.iter()
+                                                              .map(|(k, v)| (k.clone(), Box::new(get_function_type(v))))
+                                                              .collect();
+
+        let t: Type = Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data, None, method_types, vec![]));
         self.current_symbol_table.borrow_mut().insert(
             Symbol::new(SymbolType::EnumeraionType(identifier.clone(), t.clone(), vec![]), 
             start_line, start_index)
         );
-        Ok(SyntaxTree::new(SyntaxNode::Enumeraion(identifier, variants), start_line, start_index))
+        Ok(SyntaxTree::new(SyntaxNode::Enumeraion(identifier, variants, methods), start_line, start_index))
     }
 
 
@@ -1930,8 +1967,8 @@ impl Parser {
         loop {
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
-                TokenType::Pipe => variants.push(self.parse_enum_variant()?),
-                TokenType::Semicolon => break,
+                TokenType::Comma => variants.push(self.parse_enum_variant()?),
+                TokenType::CloseCurly => break,
                 _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Semicolon)))
             }
         }

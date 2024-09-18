@@ -1,0 +1,21 @@
+enum MyEnum {
+    A,
+    B
+} 
+with {
+    fn get_index() -> i32 {
+        match self {
+            self::A => { return 1; },
+            self::B => { return 2; }
+        }
+
+        return 0;
+    }
+}
+
+
+fn main() -> i32 {
+    let my_enum: MyEnum = MyEnum::A;
+    print(int2str(my_enum.get_index()));
+    return 1;
+}
