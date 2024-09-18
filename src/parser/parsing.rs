@@ -522,12 +522,13 @@ impl Parser {
 
         let (start_line, start_index) = (statements.first().unwrap().start_line, statements.first().unwrap().start_index);
 
+        let new_symbol_table = self.current_symbol_table.clone();
         let parent_symbol_table = self.current_symbol_table.borrow()
-                                                                                     .parent.as_ref().unwrap()
-                                                                                     .upgrade().unwrap();
+                                      .parent.as_ref().unwrap()
+                                      .upgrade().unwrap();
         self.current_symbol_table = parent_symbol_table;
         Ok(SyntaxTree::new(
-            SyntaxNode::StmtBlock(statements, self.current_symbol_table.clone()), 
+            SyntaxNode::StmtBlock(statements, new_symbol_table), 
             start_line, start_index
         ))
     }
