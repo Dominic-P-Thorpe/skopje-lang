@@ -299,7 +299,7 @@ impl Parser {
         // to in the definition context, and add it to the symbol table
         let self_symbol = Symbol::new(SymbolType::StructType(String::from("self"), 
             Type::from_basic(SimpleType::Struct(name.clone(), members.clone(), HashMap::new()))
-        ), id_token.line_number, id_token.col_number);
+        ), false, id_token.line_number, id_token.col_number);
         self.current_symbol_table.borrow_mut().insert(self_symbol);
         
         // get the methods associated with the struct (if any)
@@ -321,7 +321,7 @@ impl Parser {
                                                               .collect();
         let struct_type: Type = Type::from_basic(SimpleType::Struct(name.clone(), members.clone(), method_types));
         self.symbol_table_root.borrow_mut().insert(
-            Symbol::new(SymbolType::StructType(name.clone(), struct_type), line_num, col_num)
+            Symbol::new(SymbolType::StructType(name.clone(), struct_type), false, line_num, col_num)
         );
         Ok(SyntaxTree::new(SyntaxNode::Struct(name, members, methods), line_num, col_num))
     }
@@ -349,7 +349,7 @@ impl Parser {
                                              .get(&String::from("self")).unwrap()
                                              .get_type();
                     self_type.basic_type.add_behaviour(name.to_string(), func_type);
-                    let struct_symbol = Symbol::new(SymbolType::StructType(String::from("self"), self_type), 0, 0);
+                    let struct_symbol = Symbol::new(SymbolType::StructType(String::from("self"), self_type), false, 0, 0);
                     self.current_symbol_table.borrow_mut().insert(struct_symbol);
                 }
                 _ => panic!()
@@ -440,7 +440,7 @@ impl Parser {
             let func_type = Type::new(SimpleType::Function(
                 Box::new(return_type.clone()), params.iter().map(|(_, t)| t).cloned().collect::<Vec<Type>>()
             ), false, vec![]);
-            self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Function(id.clone(), func_type), line_num, col_num));
+            self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Function(id.clone(), func_type), false, line_num, col_num));
             return Ok(SyntaxTree::new(
                 SyntaxNode::Function(id, params, return_type, Box::new(body)), line_num, col_num
             ));
@@ -481,7 +481,7 @@ impl Parser {
             let p_type: Type = self.parse_type().unwrap();
 
             params.push((p_id.clone(), p_type.clone()));
-            self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(p_id, p_type), p_line, p_col));
+            self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(p_id, p_type), false, p_line, p_col));
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
@@ -522,12 +522,13 @@ impl Parser {
 
         let (start_line, start_index) = (statements.first().unwrap().start_line, statements.first().unwrap().start_index);
 
+        let new_symbol_table = self.current_symbol_table.clone();
         let parent_symbol_table = self.current_symbol_table.borrow()
-                                                                                     .parent.as_ref().unwrap()
-                                                                                     .upgrade().unwrap();
+                                      .parent.as_ref().unwrap()
+                                      .upgrade().unwrap();
         self.current_symbol_table = parent_symbol_table;
         Ok(SyntaxTree::new(
-            SyntaxNode::StmtBlock(statements, self.current_symbol_table.clone()), 
+            SyntaxNode::StmtBlock(statements, new_symbol_table), 
             start_line, start_index
         ))
     }
@@ -668,7 +669,7 @@ impl Parser {
             }
 
             Pattern::IdentifierPattern(id) => 
-                vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), line_num, col_num)],
+                vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), false, line_num, col_num)],
             
             Pattern::TuplePattern(_, patterns) => {
                 let mut new_symbols: Vec<Symbol> = vec![];
@@ -681,7 +682,7 @@ impl Parser {
 
                     match pattern {
                         Pattern::IdentifierPattern(id) => 
-                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
+                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), false, line_num, col_num)),
                         _ => ()
                     }
                 }
@@ -695,7 +696,7 @@ impl Parser {
                 for pattern in patterns {
                     match pattern {
                         Pattern::IdentifierPattern(id) => 
-                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
+                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), false, line_num, col_num)),
                         _ => ()
                     }
                 }
@@ -704,7 +705,7 @@ impl Parser {
                     None => (),
                     Some(p) => match p {
                         Pattern::IdentifierPattern(id) => 
-                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), line_num, col_num)),
+                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), false, line_num, col_num)),
                         _ => ()
                     }
                 }
@@ -748,7 +749,7 @@ impl Parser {
                     let param_type = variant_data_params.get_index(i).unwrap().1;
                     result.push(Symbol::new(
                         SymbolType::Variable(param_name.to_string(), param_type.clone()), 
-                        line_num, col_num)
+                        false, line_num, col_num)
                     );
                 }
             }
@@ -938,7 +939,7 @@ impl Parser {
 
         let iterator_symbol = Symbol::new(
             SymbolType::Variable(iterator_id.clone(), iterator_type.clone()), 
-            iterator_line, iterator_col
+            false, iterator_line, iterator_col
         );
         let body = self.parse_stmt_block(vec![iterator_symbol])?;
 
@@ -961,8 +962,13 @@ impl Parser {
 
 
     fn parse_reassignment(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        // ensure that the current symbol both exists and is mutable
         match self.current_symbol_table.borrow().get(&id) {
-            Some(_) => (),
+            Some(symbol) => {
+                if !symbol.mutable {
+                    panic!("Semantic error: The identifier {} is immutable and cannot be reassigned", id)
+                }
+            },
             None => panic!("Semantic error: The identifier {} could not be found!", id)
         }
 
@@ -1025,6 +1031,20 @@ impl Parser {
     /// 
     /// Let statements have the form: `"let" <identifier> ":" <type> "=" <expression> ";"`.
     fn parse_let_statement(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        let is_mutable = match self.tokens.front().unwrap().token_type {
+            TokenType::MutKeyword => {
+                self.tokens.pop_front();
+                true
+            }
+
+            TokenType::ConstKeyword => {
+                self.tokens.pop_front();
+                false
+            }
+
+            _ => false
+        };
+        
         let next_token = self.tokens.pop_front().unwrap();
         let id: String = match next_token.token_type {
             TokenType::Identifier(id) => id,
@@ -1056,7 +1076,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, Semicolon);
 
-        self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(id.clone(), var_type.clone()), line_num, col_num));
+        self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(id.clone(), var_type.clone()), is_mutable, line_num, col_num));
         Ok(SyntaxTree::new(SyntaxNode::LetStmt(id, var_type, Box::new(expression)), line_num, col_num))
     }
 
@@ -1932,7 +1952,7 @@ impl Parser {
         let self_symbol = Symbol::new(SymbolType::StructType(
             "self".to_owned(),
             Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data.clone(), None, HashMap::new(), vec![])) 
-        ), 0, 0);
+        ), false, 0, 0);
         self.current_symbol_table.borrow_mut().insert(self_symbol);
 
         let next_token = self.tokens.front().unwrap();
@@ -1954,7 +1974,7 @@ impl Parser {
         let t: Type = Type::from_basic(SimpleType::Enum(identifier.clone(), variant_data, None, method_types, vec![]));
         self.current_symbol_table.borrow_mut().insert(
             Symbol::new(SymbolType::EnumeraionType(identifier.clone(), t.clone(), vec![]), 
-            start_line, start_index)
+            false, start_line, start_index)
         );
         Ok(SyntaxTree::new(SyntaxNode::Enumeraion(identifier, variants, methods), start_line, start_index))
     }
@@ -2035,6 +2055,35 @@ mod tests {
     use crate::Scanner;
 
     use super::Parser;
+    
+    
+    #[test]
+    fn test_mutable_variable_reassignment() {
+        let scanner = Scanner::from_str("
+            fn main() -> i32 {
+                let mut a: i32 = 1;
+                a = 2;
+                return a;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_immutable_variable_reassignment() {
+        let scanner = Scanner::from_str("
+            fn main() -> i32 {
+                let a: i32 = 1;
+                a = 2;
+                return a;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
 
 
     #[test]

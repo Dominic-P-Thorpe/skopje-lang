@@ -432,6 +432,8 @@ impl Scanner {
                             "for" => return Ok(TokenType::ForKeyword),
                             "in" => return Ok(TokenType::InKeyword),
                             "let" => return Ok(TokenType::LetKeyword),
+                            "mut" => return Ok(TokenType::MutKeyword),
+                            "const" => return Ok(TokenType::ConstKeyword),
                             "do" => return Ok(TokenType::DoKeyword),
                             "enum" => return Ok(TokenType::EnumKeyword),
                             "true" => return Ok(TokenType::BoolLiteral(true)),

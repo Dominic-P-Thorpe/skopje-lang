@@ -218,14 +218,7 @@ impl Transpiler {
                 ))
             }
 
-            SyntaxNode::LetStmt(id, var_type, expr) => Ok(format!(
-                "{}{} {} = {};",
-                "    ".repeat(indent), 
-                var_type.as_ctype_str(), 
-                id, 
-                self.transpile_typed_expr_c(expr, var_type)?
-            )),
-
+            SyntaxNode::LetStmt(id, var_type, expr) => self.transpile_let_stmt(id, &var_type, &expr, indent),
             SyntaxNode::ReassignmentStmt(id, expr, var_type) => Ok(format!(
                 "{}{} = {};",
                 "    ".repeat(indent), 
@@ -250,6 +243,29 @@ impl Transpiler {
             SyntaxNode::BreakStmt => Ok(format!("{}break;", "\t".repeat(indent))),
             other => panic!("{:?} is not a valid node!", other)
         }
+    }
+
+
+    fn transpile_let_stmt(
+        &mut self, 
+        id: &String, 
+        var_type: &Type, 
+        expr: &SyntaxTree, 
+        indent: usize
+    ) -> Result<String, Box<dyn Error>> {
+        let is_const = match !self.symbol_table.borrow().get(id).unwrap().mutable {
+            true => "const ",
+            false => ""
+        };
+
+        Ok(format!(
+            "{}{}{} {} = {};",
+            "    ".repeat(indent), 
+            is_const,
+            var_type.as_ctype_str(),
+            id, 
+            self.transpile_typed_expr_c(expr, var_type)?
+        ))
     }
 
 
