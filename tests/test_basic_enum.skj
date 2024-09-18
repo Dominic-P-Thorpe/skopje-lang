@@ -1,4 +1,4 @@
-enum BasicEnum = Foo | Bar | Cats | Dogs;
+enum BasicEnum { Foo,  Bar,  Cats, Dogs }
 
 
 fn main() -> BasicEnum {

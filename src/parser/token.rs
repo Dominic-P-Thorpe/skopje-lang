@@ -63,7 +63,7 @@ pub enum TokenType {
     EnumKeyword,
     MatchKeyword,
     AsKeyword,
-    ImplKeyword,
+    WithKeyword,
     TraitKeyword,
     SelfKeyword,
     DefaultKeyword,

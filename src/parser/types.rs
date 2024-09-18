@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use std::{collections::HashMap, error::Error};
 
-use crate::semantics::symbol_table::{Symbol, SymbolTable};
+use crate::semantics::symbol_table::SymbolTable;
 
 use super::errors::ParsingError;
 
@@ -23,13 +23,16 @@ pub enum SimpleType {
     Tuple(Vec<Type>),
     Array(Box<Type>, usize), // inner type, array size
     Iterator(Box<Type>), // inner type
-    Struct(String, IndexMap<String, Type>), // name and members
+    Struct(String, IndexMap<String, Type>, HashMap<String, Box<Type>>), // name and members
     Function(Box<Type>, Vec<Type>), // return type, vec of params
-    // name of the enum, hashmap of names of variants to their members, which are composed of a 
-    // member number used to construct an instance of the enum of that member, and a hashmaps of 
-    // data members to their types, an option to denote which, if any, variant this enum type is of,
-    // a hashmap of behvaiour names to the behaviour, and a vector of traits the enum  inherits
-    Enum(String, IndexMap<String, IndexMap<String, Type>>, Option<String>, HashMap<String, Symbol>, Vec<Type>),
+    /// - name of the enum
+    /// - indexmap of names of variants to their members, which are composed of a member number 
+    /// used to construct an instance of the enum of that member, and a hashmap of data members to 
+    /// their types 
+    /// - an option to denote which, if any, variant this enum type is of,
+    /// - a hashmap of method names to their syntax trees, 
+    /// - and a vector of traits the enum  inherits
+    Enum(String, IndexMap<String, IndexMap<String, Type>>, Option<String>, HashMap<String, Box<Type>>, Vec<Type>),
     IOMonad
 }
 
@@ -91,7 +94,7 @@ impl SimpleType {
                 params.iter().map(|p| p.as_ctype_str()).collect::<Vec<String>>().join(", ")
             ),
 
-            Self::Enum(name, _, _, _, _) | Self::Struct(name, _) => name.to_string()
+            Self::Enum(name, _, _, _, _) | Self::Struct(name, _, _) => name.to_string()
         }
     }
 
@@ -178,10 +181,10 @@ impl SimpleType {
     }
 
 
-    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Symbol) {
+    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Type) {
         match self {
-            Self::Enum(_, _, _, items, _) => {
-                items.insert(behaviour_name, behaviour);
+            Self::Enum(_, _, _, methods, _) | Self::Struct(_, _, methods) => {
+                methods.insert(behaviour_name, Box::new(behaviour));
             }
             _ => panic!()
         }
@@ -280,11 +283,6 @@ impl Type {
 
     pub fn is_compatible_with(&self, other: &Self) -> bool {
         self.basic_type.is_compatible_with(&other.basic_type)
-    }
-
-
-    pub fn add_behaviour(&mut self, behaviour_name: String, behaviour: Symbol) {
-        self.basic_type.add_behaviour(behaviour_name, behaviour);
     }
 }
 

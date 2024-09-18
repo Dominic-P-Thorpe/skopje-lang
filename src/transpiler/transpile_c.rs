@@ -22,13 +22,14 @@
 use indexmap::IndexMap;
 use rand::distributions::{Alphanumeric, DistString};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::rc::Rc;
 
 use crate::parser::types::{Type, SimpleType};
-use crate::semantics::symbol_table::{Symbol, SymbolTable, SymbolType};
+use crate::semantics::symbol_table::SymbolTable;
 use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type};
 use crate::{Pattern, SyntaxNode, SyntaxTree};
 
@@ -242,16 +243,8 @@ impl Transpiler {
                 Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
             }
 
-            SyntaxNode::Enumeraion(name, variants) => {
-                let enum_behaviours = match self.symbol_table.borrow().get(name).unwrap().category {
-                    SymbolType::EnumeraionType(_, _, behaviours) => behaviours,
-                    _ => panic!()
-                };
-
-                self.transpile_enum(name, variants, enum_behaviours, indent)
-            }
-
-            SyntaxNode::Struct(name, members) => self.transpile_struct(name, members, indent),
+            SyntaxNode::Enumeraion(name, variants, methods) => self.transpile_enum(name, variants, methods, indent),
+            SyntaxNode::Struct(name, members, methods) => self.transpile_struct(name, members, methods, indent),
             SyntaxNode::MatchStmt(_, _, _) => self.transpile_match_stmt(tree, indent),
             SyntaxNode::ContinueStmt => Ok(format!("{}continue;", "\t".repeat(indent))),
             SyntaxNode::BreakStmt => Ok(format!("{}break;", "\t".repeat(indent))),
@@ -260,9 +253,15 @@ impl Transpiler {
     }
 
 
-    fn transpile_struct(&mut self, name: &str, members: &IndexMap<String, Type>, indent: usize) -> Result<String, Box<dyn Error>> {
+    fn transpile_struct(
+        &mut self, 
+        name: &str, 
+        members: &IndexMap<String, Type>, 
+        methods: &HashMap<String, SyntaxTree>, 
+        indent: usize
+    ) -> Result<String, Box<dyn Error>> {
         Ok(format!(
-            "\nclass {1} {{\n{0}public:\n\t{2}\n\t{1}({3}) : {4} {{}}\n{0}}};",
+            "\nclass {1} {{\n{0}public:\n\t{2}\n\t{1}({3}) : {4} {{}}{5}\n{0}}};",
             "\t".repeat(indent),
             name,
             members.iter().map(|(k, v)| format!("{} {};\n", v.as_ctype_str(), k))
@@ -270,7 +269,9 @@ impl Transpiler {
             members.iter().map(|(k, v)| format!("{} {}", v.as_ctype_str(), k))
                    .collect::<Vec<String>>().join(", "),
             members.iter().map(|(k, _)| format!("{0}({0})", k))
-                   .collect::<Vec<String>>().join(", ")
+                   .collect::<Vec<String>>().join(", "),
+            methods.iter().map(|(_, v)| self.transpile_c_tree(v, indent + 1).unwrap())
+                   .collect::<Vec<String>>().join("")
         ))
     }
 
@@ -292,8 +293,13 @@ impl Transpiler {
         for (pattern, body) in patterns {
             // get the first pattern in the list of patterns to match against
             match &pattern {
-                Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => 
-                    patterns_strs.push(self.transpile_enum_pattern(body, enum_name, &variant_name, inner_patterns, match_expr_str, indent)?),
+                Pattern::EnumPattern(enum_name, variant_name, inner_patterns) => {
+                    let enum_name = match self.symbol_table.borrow().get(enum_name).unwrap().get_type().basic_type {
+                        SimpleType::Enum(name, _, _, _, _) => name,
+                        _ => panic!()
+                    };
+                    patterns_strs.push(self.transpile_enum_pattern(body, &enum_name, &variant_name, inner_patterns, match_expr_str, indent)?)
+                } 
 
                 Pattern::TuplePattern(_, patterns) => 
                     patterns_strs.push(self.transpile_tuple_pattern(patterns, match_expr_str, body, indent)?),
@@ -495,8 +501,8 @@ impl Transpiler {
 
         patterns_strs.push(format!(
             "
-{0}if ({7}.getTag() == {1}::{2}) {{
-{0}    auto iu = {4}.getValue().{5};
+{0}if ({7} == {1}::{2}) {{
+{0}    auto iu = {4}.{5};
 {6}      
 {0}    if ({8}) {{
             {0}{3}
@@ -507,10 +513,16 @@ impl Transpiler {
             variant_name,
             // transpile the body of the pattern branch
             self.transpile_c_tree(body, indent + 2)?,
-            match_expr_str,
+            match match_expr_str {
+                "this" => "this->getValue()",
+                _ => "this.getValue()"
+            },
             variant_name.to_lowercase(),
             self.transpile_enum_data_params(inner_patterns, &enum_type, variant_name, indent + 1),
-            match_expr_str,
+            match match_expr_str {
+                "this" => "this->getTag()",
+                _ => "this"
+            },
             self.transpile_conditional_patterns(inner_patterns, match_expr_str)
         ));
 
@@ -714,8 +726,8 @@ impl Transpiler {
     fn transpile_enum(
         &mut self, 
         name: &String, // name of the enum to transpile
-        variants: &Vec<SyntaxTree>, // variants the enum may take
-        behaviours: Vec<Symbol>, // behaviours contained by the enum
+        variants: &Vec<SyntaxTree>, // variants the enum may take,
+        methods: &HashMap<String, SyntaxTree>,
         indent: usize // current output file indentation level
     ) -> Result<String, Box<dyn Error>> {
         let string = format!("
@@ -787,10 +799,8 @@ private:
                 }
             ).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent))),
 
-            behaviours.iter().map(|behaviour| match &behaviour.category {
-                SymbolType::Behaviour(_, _, tree) => self.transpile_c_tree(&tree, indent + 1).unwrap(),
-                _ => panic!()
-            }).collect::<Vec<String>>().join(&format!("\t\t{}", "    ".repeat(indent)))
+            methods.iter().map(|(_, v)| self.transpile_c_tree(v, indent + 1).unwrap())
+                   .collect::<Vec<String>>().join("")
         );
         Ok(string)
     }
@@ -847,7 +857,7 @@ mod test {
     #[test]
     fn test_basic_enum_match() {
         let scanner = Scanner::from_str("
-            enum MyEnum = VariantA | VariantB | VariantC;
+            enum MyEnum { VariantA, VariantB, VariantC }
 
             fn main() -> i32 {
                 let my_enum: MyEnum = MyEnum::VariantA;
@@ -868,9 +878,19 @@ mod test {
 
 
     #[test]
+    fn test_match_self() {
+        let scanner = Scanner::new("tests/test_match_self.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
     fn test_basic_enum_data_match() {
         let scanner = Scanner::from_str("
-            enum MyEnum = VariantA(a: i32, b: u32) | VariantB(a: i32) | VariantC;
+            enum MyEnum { VariantA(a: i32, b: u32), VariantB(a: i32), VariantC }
 
             fn main() -> i32 {
                 let my_enum: MyEnum = MyEnum::VariantA(a: 1, b: 2);
@@ -893,8 +913,8 @@ mod test {
     #[test]
     fn test_enum_with_enum_as_data_param() {
         let scanner = Scanner::from_str("
-            enum ParamEnum = ParamA | ParamB(internal: i32);
-            enum MyEnum = VariantA(a: i32, b: ParamEnum) | VariantB(a: i32) | VariantC;
+            enum ParamEnum { ParamA, ParamB(internal: i32) }
+            enum MyEnum { VariantA(a: i32, b: ParamEnum), VariantB(a: i32), VariantC }
 
             fn main() -> i32 {
                 let my_enum: MyEnum = MyEnum::VariantA(a: 5, b: ParamEnum::ParamB(internal: 20));
@@ -922,7 +942,7 @@ mod test {
     #[test]
     fn test_match_enum_with_specific_data_param() {
         let scanner = Scanner::from_str("
-            enum MyEnum = VariantA(a: i32, b: u32) | VariantB(a: i32) | VariantC;
+            enum MyEnum { VariantA(a: i32, b: u32), VariantB(a: i32), VariantC }
 
             fn main() -> i32 {
                 let my_enum: MyEnum = MyEnum::VariantA(a: 1, b: 2);
@@ -972,7 +992,7 @@ mod test {
     #[test]
     fn test_match_tuple_in_enum_pattern() {
         let scanner = Scanner::from_str("
-            enum MyEnum = VariantA | VariantB(x: (i32, i32));
+            enum MyEnum { VariantA, VariantB(x: (i32, i32)) }
 
 
             fn main() -> i32 {
@@ -993,6 +1013,16 @@ mod test {
                 return 0;
             }
         ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    fn test_struct_with_methods() {
+        let scanner = Scanner::new("tests/test_struct_with_methods.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");

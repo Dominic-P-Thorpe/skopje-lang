@@ -59,7 +59,7 @@ use crate::parser::parsing::{SyntaxNode, SyntaxTree};
 use crate::parser::types::{Type, SimpleType};
 
 use super::errors::TypeError;
-use super::symbol_table::{Symbol, SymbolTable, SymbolType};
+use super::symbol_table::{SymbolTable, SymbolType};
 
 
 /// Determines the type of a given expression within a specific context.
@@ -209,8 +209,8 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
         },
 
         SyntaxNode::SelfIdentifier => {
-            match &context.self_ref {
-                Some(self_ref) => Ok(self_ref.clone()),
+            match &context.get(&String::from("self")) {
+                Some(self_ref) => Ok(self_ref.get_type()),
                 None => panic!("Using self is not valid in this context!")
             }
         }
@@ -219,7 +219,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             // check that all the members of the instance are the correct type
             let struct_type: Type = context.get(name).unwrap().get_type();
             match &struct_type.basic_type {
-                SimpleType::Struct(_, type_members) => {
+                SimpleType::Struct(_, type_members, _) => {
                     // check that the instance has the right number of members
                     assert_eq!(type_members.len(), instance_members.len());
                     for (m, t) in type_members.iter() {
@@ -261,7 +261,7 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
             SyntaxNode::BinaryOperation(_, left, right) => {
                 let left_type = match &left.node {
                     SyntaxNode::Identifier(id) => context.get(&id).expect(id).get_type(),
-                    SyntaxNode::SelfIdentifier => context.self_ref.clone().unwrap(),
+                    SyntaxNode::SelfIdentifier => context.get(&String::from("self")).unwrap().get_type(),
                     SyntaxNode::BinaryOperation(_, _, _) => get_struct_member_type(Some(get_expr_type(right, context)?), left, context)?,
                     SyntaxNode::ArrayIndexingOperation(_, array) => get_array_inner_type(&get_expr_type(array, context)?),
                     other => panic!("Expected identifier, got {:?}", other)
@@ -277,12 +277,17 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
     
     match &l.node {
         SyntaxNode::Identifier(id) => match right_type.basic_type {
-            SimpleType::Struct(_, members) => Ok(members.get(id).unwrap().clone()),
+            SimpleType::Struct(_, members, _) => Ok(members.get(id).unwrap().clone()),
             _ => panic!()
         }
 
-        SyntaxNode::FunctionCall(name, _) => match context.get(name).unwrap().get_type().basic_type {
-            SimpleType::Function(rt, _) => Ok(*rt),
+        SyntaxNode::FunctionCall(name, _) => match right_type.basic_type {
+            SimpleType::Struct(_, _, methods) | SimpleType::Enum(_, _, _, methods, _) => {
+                match &methods.get(name).unwrap().basic_type {
+                    SimpleType::Function(rt, _) => Ok(*rt.clone()),
+                    other => panic!("{:?}", other)
+                }
+            }
             _ => Ok(right_type.clone())
         }
 
@@ -403,19 +408,9 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
 } 
 
 
-fn get_enum_expr_return_type(behaviours: HashMap<String, Symbol>, tree: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
+fn get_enum_expr_return_type(behaviours: HashMap<String, Box<Type>>, tree: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
     let mut behaviours = behaviours;
     match &tree.node {
-        SyntaxNode::FunctionCall(id, _) => match behaviours.get(id).unwrap().clone().category {
-            SymbolType::Behaviour(_, behaviour_type, _) => {
-                match behaviour_type.basic_type {
-                    SimpleType::Function(return_type, _) => Ok(*return_type),
-                    _ => panic!()
-                }
-            },
-            _ => panic!()
-        }
-
         SyntaxNode::BinaryOperation(op, left, right) => {
             if op.as_str() != "." {
                 panic!("Expected '.' operator, got {}", op)
@@ -464,12 +459,23 @@ pub fn get_l_expr_type(expr: &SyntaxTree, symbol_table: &SymbolTable) -> Result<
 
             let left_type = get_l_expr_type(l, symbol_table)?;
             match left_type.basic_type {
-                SimpleType::Struct(_, members) => Ok(members.get(right_id).unwrap().clone()),
+                SimpleType::Struct(_, members, _) => Ok(members.get(right_id).unwrap().clone()),
                 _ => panic!()
             }
         }
 
         other => panic!("Invalid node {:?} in l-expression", other)
+    }
+}
+
+
+pub fn get_function_type(func: &SyntaxTree) -> Type {
+    match &func.node {
+        SyntaxNode::Function(_, args, rt, _) => {
+            let arg_types = args.iter().map(|(_, t)| t).cloned().collect();
+            Type::new(SimpleType::Function(Box::new(rt.clone()), arg_types), false, vec![])
+        }
+        _ => panic!()
     }
 }
 
