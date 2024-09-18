@@ -93,6 +93,8 @@ pub struct Symbol {
     pub line: usize,
     /// The column number where the symbol was declared.
     pub col: usize,
+    /// If the symbol is mutable (always false unless a variable)
+    pub mutable: bool,
     /// The category of the symbol, which defines what kind of symbol it is 
     /// (variable, function, etc.).
     pub category: SymbolType,
@@ -117,10 +119,11 @@ impl Symbol {
     /// ```
     /// Symbol::new(SymbolType::Variable(String::from("x"), Type::from_basic(SimpleType::I32)))
     /// ```
-    pub fn new(category: SymbolType, line: usize, col: usize) -> Self {
+    pub fn new(category: SymbolType, mutable: bool, line: usize, col: usize) -> Self {
         Self {
             category,
             line,
+            mutable,
             col
         }
     }
@@ -195,10 +198,10 @@ impl SymbolTable {
                     vec![Type::from_basic(SimpleType::Bool)]
                 ));
         
-                functions.insert("print".to_owned(), Symbol::new(SymbolType::Function("print".to_owned(), print_type), 0, 0));
-                functions.insert("float2str".to_owned(), Symbol::new(SymbolType::Function("float2str".to_owned(), float2str_type), 0, 0));
-                functions.insert("int2str".to_owned(), Symbol::new(SymbolType::Function("int2str".to_owned(), int2str_type), 0, 0));
-                functions.insert("bool2str".to_owned(), Symbol::new(SymbolType::Function("bool2str".to_owned(), bool2str_type), 0, 0));
+                functions.insert("print".to_owned(), Symbol::new(SymbolType::Function("print".to_owned(), print_type), false, 0, 0));
+                functions.insert("float2str".to_owned(), Symbol::new(SymbolType::Function("float2str".to_owned(), float2str_type), false, 0, 0));
+                functions.insert("int2str".to_owned(), Symbol::new(SymbolType::Function("int2str".to_owned(), int2str_type), false, 0, 0));
+                functions.insert("bool2str".to_owned(), Symbol::new(SymbolType::Function("bool2str".to_owned(), bool2str_type), false, 0, 0));
 
 
                 functions

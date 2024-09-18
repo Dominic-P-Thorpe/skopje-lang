@@ -3,8 +3,8 @@ fn ode(t: f32, y: f32) -> f32 {
 }
 
 fn runge_kutta_4(y_0: f32, t_0: f32, t_n: f32, h: f32) -> f32 {
-    let t: f32 = t_0;
-    let y: f32 = y_0;
+    let mut t: f32 = t_0;
+    let mut y: f32 = y_0;
 
     while (t < t_n) {
         // Calculate the four Runge-Kutta increments (k1, k2, k3, k4)

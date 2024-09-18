@@ -57,6 +57,8 @@ pub enum TokenType {
     DoKeyword,
     ElseKeyword,
     LetKeyword,
+    MutKeyword,
+    ConstKeyword,
     WhileKeyword,
     ForKeyword,
     InKeyword,
