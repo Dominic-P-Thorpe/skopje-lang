@@ -250,6 +250,10 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             Ok(if_true_type)
         }
 
+        SyntaxNode::MonadicExpr(_) => {
+            Ok(Type::new(SimpleType::IOMonad, false, vec![Type::from_basic(SimpleType::Void)]))
+        }
+
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }

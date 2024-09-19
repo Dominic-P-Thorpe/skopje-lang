@@ -80,7 +80,7 @@ impl SimpleType {
             Self::F64 => String::from("double"),
             Self::Str => String::from("std::string"),
             Self::Bool => String::from("bool"),
-            Self::IOMonad => String::from("IOMonad"),
+            Self::IOMonad => String::from("IO"),
             Self::Iterator(inner) => format!("std::vector<{}>", inner.as_ctype_str()),
             Self::Array(inner_type, size) => format!("std::array<{}, {}>", inner_type.as_ctype_str(), size),
             Self::Tuple(types) => format!(
@@ -257,7 +257,10 @@ impl Type {
     pub fn as_ctype_str(&self) -> String {
         let basic_type_str = self.basic_type.as_ctype_str().to_owned();
         if self.monadic {
-            return format!("{}<{}(*)()>", basic_type_str, self.generics.get(0).unwrap().as_ctype_str());
+            match &self.generics.get(0).unwrap().basic_type {
+                SimpleType::Void => return format!("{0}<std::function<{1}()>>", basic_type_str, self.generics.get(0).unwrap().as_ctype_str()),
+                _ => return format!("{0}<std::function<{1}({1})>>", basic_type_str, self.generics.get(0).unwrap().as_ctype_str())
+            }
         }
 
         let generic_type_str = match self.generics.len() {

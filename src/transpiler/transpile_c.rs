@@ -148,10 +148,10 @@ impl Transpiler {
                 // main function is a special case as it must have the return type of "int", so we
                 // convert this function's name to a different name (__special__main())
                 if name.as_str() == "main" {
-                    return Ok(format!("\n{} __special__main() {{\n{} \n}}\n\n", return_type_text, body_text));
+                    return Ok(format!("\n{} __special__main() {{{} \n}}\n\n", return_type_text, body_text));
                 }
 
-                Ok(format!("\n{} {}({}) {{\n{} \n}}\n\n", return_type_text, name, args_string, body_text))
+                Ok(format!("\n{} {}({}) {{{} \n}}\n\n", return_type_text, name, args_string, body_text))
             }
 
             SyntaxNode::ReturnStmt(body) => {
@@ -733,6 +733,13 @@ impl Transpiler {
                 self.transpile_typed_expr_c(l, &Type::from_basic(SimpleType::Str))?,
                 self.transpile_typed_expr_c(r, &Type::from_basic(SimpleType::Str))?
             )),
+
+            SyntaxNode::MonadicExpr(body) => {
+                let monad_func_name = self.get_next_auxilliary_func_name();
+                let monad_body = self.transpile_c_tree(&body, 1)?;
+                self.functions_source.push(format!("void {}() {{\n{}\n}}", monad_func_name, monad_body));
+                Ok(format!("IO<std::function<void()>>({})", monad_func_name))
+            }
 
             other => panic!("{:?} is not a valid expression node!", other)
         }
