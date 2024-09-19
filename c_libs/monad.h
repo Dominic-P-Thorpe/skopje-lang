@@ -1,90 +1,107 @@
 #ifndef MONAD
 #define MONAD
 
-#include <vector>
 #include <functional>
-#include <stdint.h>
 
 
-/// @brief Represents the monad for IO actions. IO actions may be composed with the arrow function
-/// and created by lifting a regular function to monad status. The monad may be executed by binding
-/// it.
-/// @tparam T The function represented by the monad (lifted)
+/**
+ * @brief This class represents a monad, which is used to sequence operations in a defined and rigid
+ * way which is not affected by automatic concurrency.
+ *  
+ * A monad is a monoid in the category of endofunctors, meaning that they are a wrapper around a
+ * value which provide the following operations:
+ *  - lift: lifts a value into a monad wrapper
+ *  - bind: takes a nested monad M(M(x)) and returns a non-nested monad M(x)
+ *  - endofunctor: an operation M : C -> C
+ * 
+ * @tparam T The type of the value contained by the monad
+ */
 template <typename T>
-class IOMonad {
-    private:
-        T value;
-        std::vector<T> action;
+class Monad {
+public:
+    /**
+     * @brief Construct a new Monad object
+     * 
+     * @param obj The value contained by the monad
+     */
+    Monad(T obj) : object(obj) {}
+
+    /**
+     * @brief Composes a monadic value with a function arrow a: T -> T to create a new value
+     * 
+     * This function must be an endofunctor to meet the definition of a monad (i.e. map a category
+     * from itself to itself).
+     * 
+     * @param right The arrow from the old value to the new value
+     * @return Monad<T> A monad containing the result of the arrow applied to the value of this 
+     * monad
+     */
+    Monad<T> arrow(Monad<std::function<T(T)>> right) {
+        return Monad<T>(right.getObject()(this->object));
+    }
     
-        IOMonad(T value);
+    /**
+     * @brief A natural transformation b: M(M(x)) -> M(x) which flattens a nested monad into a non-
+     * nested monad.
+     * 
+     * @param m The monad to flatten
+     * @return Monad<T> The flattened monad
+     */
+    Monad<T> bind(Monad<Monad<T>> m) { 
+        return m.getObject();
+    }
 
+    /**
+     * @brief Get the value contained within the monad
+     * 
+     * @return T the value within the monad
+     */
+    T getObject() {
+        return this->object;
+    }
 
-    public:
-        static IOMonad<T> lift(T value);
-        T bind();
-        IOMonad<T> arrow(T func);
-        void add_action(T action);
+protected:
+    /**
+     * @brief The value contained within the monadic context 
+     */
+    const T object;
 };
 
 
-
-/// @brief Creates a new monad by lifting the passed value to monad status.
-/// @tparam T The type of the value represented by the monad
-/// @param value The value the monad shall represent
+/**
+ * @brief Used to represent IO actions in a monadic way to ensure that they happen in a defined, 
+ * sequential order which is not affected by automatic concurrency.
+ * 
+ * @tparam T The value contained within the monadic context.
+ */
 template <typename T>
-IOMonad<T>::IOMonad(T value) : value(value) {}
+class IO : public Monad<T> {
+public:
+    /**
+     * @brief Construct a new IO object
+     * 
+     * @param obj The value to contain within the IO monadic context
+     */
+    IO(T obj) : Monad<T>(obj) {}
 
+    /**
+     * @brief Composes the value contained by the IO monad (which is a function) with the contained 
+     * by the monad passed (which is also a function).
+     * 
+     * @param right The monad to compose with this monad such that right(this)
+     * @return Monad<T> The monad representing the composition of the 2 previous monads
+     */
+    virtual IO<T> arrow(Monad<T> right) {
+        auto l = this->getObject();
+        auto r = right.getObject();
+        T inner = [l, r] () {
+            l();
+            r();
+        };
 
-/// @brief Creates a new monad by lifting the passed value to monad status.
-/// @tparam T The type of the value represented by the monad
-/// @param value The value the monad shall represent
-/// @return The new monad
-template <typename T>
-IOMonad<T> IOMonad<T>::lift(T value) {
-    return IOMonad<T>(value);
-}
-
-
-/// @brief Executes the monad, including the chain of functions which have been added to it with
-/// arrows, returning the result.
-/// @tparam T The type of the value represented by the monad
-/// @return The value after each function applied to it by arrows have been applied
-template <typename T>
-T IOMonad<T>::bind() {
-    if (this->action.size() == 0)
-        return this->value;
-    
-    T intermediate = this->value;
-    intermediate();
-    for (uint32_t i = 0; i < this->action.size(); i++) {
-        intermediate = this->action[i];
-        intermediate();
+        return IO<T>(inner);
     }
-    
-    return intermediate;
-}
-
-
-/// @brief Adds a new action to the end of the list of actions represented by the monad
-/// @tparam T The type of the value represented by the monad
-/// @param action The action to add to the monad
-template <typename T>
-void IOMonad<T>::add_action(T action) {
-    this->action.push_back(action);
-}
-
-
-/// @brief Chains 2 monads together, the left being fed into the right, and returns a new monad
-/// representing the combination of the two.
-/// @tparam T The type of the value represented by both the old monads and the new monad
-/// @param func The monad to be chained onto the end of the current monad
-/// @return The new monad representing the result of the arrow operation
-template <typename T>
-IOMonad<T> IOMonad<T>::arrow(T func) {
-    IOMonad<T> new_monad = IOMonad<T>(this->value);
-    new_monad.add_action(func);
-    return new_monad;
-}
+};
 
 
 #endif

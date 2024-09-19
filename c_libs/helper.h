@@ -18,15 +18,6 @@
 #include <concepts>
 #include "monad.h"
 
-/// @brief Returns true if the type param T is an `IOMonad`, and false otherwise 
-/// @tparam T The type param to check
-template <typename T>
-struct is_monad : std::false_type {};
-
-/// @brief Returns true if the type param T is an `IOMonad`, and false otherwise 
-/// @tparam T The type param to check
-template <typename T>
-struct is_monad<IOMonad<T>> : std::true_type {};
 
 /// @brief If the type of the passed parameter is a monad, bind the monad, thereby running its 
 /// contents, otherwise just execute the non-monadic function.
@@ -35,8 +26,8 @@ struct is_monad<IOMonad<T>> : std::true_type {};
 template <typename F>
 void bind_if_monad(F&& f) {
     using ReturnType = decltype(f());
-    if constexpr (is_monad<ReturnType>::value) {
-        f().bind();
+    if (std::is_convertible_v<ReturnType, Monad<std::function<void()>>>) {
+        f().getObject()();
     } else {
         f();
     }
