@@ -2,6 +2,60 @@
 #define MONAD
 
 #include <functional>
+#include <type_traits>
+
+
+/**
+ * @brief Fallback when the second template parameter is not a function type.
+ * 
+ * Static_assert will trigger a compile-time error if instantiated with an invalid second 
+ * template parameter.
+ */
+template<typename, typename T>
+struct is_monad {
+    static_assert(
+        std::integral_constant<T, false>::value,
+        "Second template parameter needs to be of function type."
+    );
+};
+
+
+/**
+ * @brief Specialization of `is_monad` for cases where the second template parameter is a function 
+ * type. 
+ * 
+ * Will actually perform checks to see if a given class `C` has a method that can be called
+ * with the specified arguments and return the correct return type.
+ * 
+ * @tparam C The class to check if it is a monad
+ * @tparam Ret The return type we want from the function we are checking for
+ */
+template<typename C, typename Ret>
+struct is_monad<C, Ret()> {
+private:
+    /**
+     * @brief Helper function to check whether class `C` has a method `isMonad` that returns `Ret`.
+     * 
+     * @tparam T The class to check if it is a monad
+     * @return True if T has a method bool isMonad(), otherwise false 
+     */
+    template<typename T>
+    static constexpr auto check(T*)
+        -> typename std::is_same<decltype(std::declval<T>().isMonad()), Ret>::type;
+
+    // Fallback template for when the previous template fails because `T` does not have the
+    // `isMonad` method with the specified signature.
+    template<typename>
+    static constexpr std::false_type check(...);
+
+    // Using the result of the `check` function to define the `type`.
+    typedef decltype(check<C>(0)) type;
+
+public:
+    // Public boolean constant that indicates whether class `C` has an `isMonad` method.
+    static constexpr bool value = type::value;
+};
+
 
 
 /**
@@ -60,7 +114,9 @@ public:
         return this->object;
     }
 
-protected:
+
+    bool isMonad() { return true; }
+
     /**
      * @brief The value contained within the monadic context 
      */
@@ -83,6 +139,16 @@ public:
      * @param obj The value to contain within the IO monadic context
      */
     IO(T obj) : Monad<T>(obj) {}
+
+    virtual IO<T> arrow(Monad<std::function<T(T)>> right) {
+        auto l = this->getObject();
+        auto r = right.getObject();
+        std::function<T()> inner = [l, r] () {
+            return r(l);
+        };
+
+        return IO<T>(inner());
+    }
 
     /**
      * @brief Composes the value contained by the IO monad (which is a function) with the contained 

@@ -250,11 +250,79 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             Ok(if_true_type)
         }
 
-        SyntaxNode::MonadicExpr(_) => {
-            Ok(Type::new(SimpleType::IOMonad, false, vec![Type::from_basic(SimpleType::Void)]))
+        SyntaxNode::MonadicExpr(_, Some((_, param_t)), rt) => 
+            Ok(Type::new(SimpleType::IOMonad(Box::new(rt.clone()), Some(Box::new(param_t.clone()))), false, vec![rt.clone()])),
+        SyntaxNode::MonadicExpr(_, None, rt) => Ok(rt.clone()),
+        other => unimplemented!("Have not yet implemented {:?}", other)
+    }
+}
+
+
+pub fn get_monad_return_type(tree: &SyntaxTree, context: &SymbolTable) -> Option<Type> {
+    match &tree.node {
+        SyntaxNode::ForStmt(_, _, _, body) 
+        | SyntaxNode::WhileStmt(_, body) => get_monad_return_type(body, context),
+
+        SyntaxNode::ReturnStmt(expr) => {
+            match get_expr_type(&expr, context) {
+                Ok(t) => Some(t),
+                Err(e) => panic!("{:?}", e)
+            }
         }
 
-        other => unimplemented!("Have not yet implemented {:?}", other)
+        SyntaxNode::StmtBlock(body, new_context) => {
+            let mut rt: Option<Type> = None;
+            for stmt in body {
+                let new_type = get_monad_return_type(stmt, &(**new_context).borrow());
+                if rt.is_none() {
+                    rt = new_type;
+                    continue;
+                }
+
+                if !new_type.is_none() && !rt.is_none() && !new_type.unwrap().is_compatible_with(&rt.clone().unwrap()) {
+                    panic!()
+                }
+            }
+
+            rt
+        },
+
+        SyntaxNode::SelectionStatement(_, if_body, else_body) => {
+            let rt = get_monad_return_type(if_body, context);
+            match &**else_body {
+                Some(tree) => {
+                    let else_return = get_monad_return_type(tree, context);
+                    if else_return.is_some() {
+                        match &rt {
+                            Some(rt) => { else_return.unwrap().is_compatible_with(&rt); },
+                            None => return else_return
+                        } 
+                    }
+
+                    rt
+                }
+                None => None
+            }
+        }
+
+        SyntaxNode::MatchStmt(_, patterns, _) => {
+            let mut rt: Option<Type> = None;
+            for (_, tree) in patterns {
+                let new_type = get_monad_return_type(tree, context);
+                if rt.is_none() {
+                    rt = new_type;
+                    continue;
+                }
+
+                if !new_type.is_none() && !rt.is_none() && !new_type.unwrap().is_compatible_with(&rt.clone().unwrap()) {
+                    panic!()
+                }
+            }
+
+            rt
+        }
+
+        _ => None
     }
 }
 
@@ -405,6 +473,22 @@ fn get_binary_operation_type(op: String, l: &SyntaxTree, r: &SyntaxTree, context
             }
 
             Err(Box::new(TypeError::new(vec![l_type], r_type)))
+        }
+
+        "->" => {
+            if l_type.is_compatible_with(&r_type) {
+                return Ok(l_type)
+            }
+
+            match &r_type.basic_type {
+                SimpleType::IOMonad(_, Some(param)) => {
+                    if l_type.is_compatible_with(&*param) {
+                        return Ok(Type::from_basic(SimpleType::IOMonad(Box::new(l_type), None)));
+                    }
+                    Err(Box::new(TypeError::new(vec![l_type], r_type)))
+                }
+                _ => Err(Box::new(TypeError::new(vec![l_type], r_type)))
+            }
         }
 
         _ => panic!("Did not recognise operator {}", op)

@@ -1,0 +1,17 @@
+fn print_hello_world() -> IO<void> {
+    return do {
+        print("Hello world!");
+    };
+}
+
+
+fn hi_there() -> IO<void> {
+    return do {
+        print("Hey there");
+    };
+}
+
+
+fn main() -> IO<void> {
+    return print_hello_world() -> hi_there();
+}

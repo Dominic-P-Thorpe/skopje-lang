@@ -30,7 +30,7 @@ use std::rc::Rc;
 
 use crate::parser::types::{Type, SimpleType};
 use crate::semantics::symbol_table::SymbolTable;
-use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type};
+use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type, get_expr_type};
 use crate::{Pattern, SyntaxNode, SyntaxTree};
 
 
@@ -226,7 +226,7 @@ impl Transpiler {
                 self.transpile_typed_expr_c(expr, var_type)?
             )),
 
-            SyntaxNode::MonadicExpr(body) => {
+            SyntaxNode::MonadicExpr(body, _, _) => {
                 let monad_func_name = self.get_next_auxilliary_func_name();
                 let body_code: String = self.transpile_c_tree(body, indent + 1)?;
                 self.functions_source.push(
@@ -258,13 +258,18 @@ impl Transpiler {
             false => ""
         };
 
+        let var_type = match var_type.clone().basic_type {
+            SimpleType::IOMonad(rt, _) => Type::from_basic(SimpleType::IOMonad(rt, None)),
+            _ => var_type.clone()
+        };
+
         Ok(format!(
             "{}{}{} {} = {};",
             "    ".repeat(indent), 
             is_const,
-            var_type.as_ctype_str(),
+            var_type.basic_type.as_ctype_str(),
             id, 
-            self.transpile_typed_expr_c(expr, var_type)?
+            self.transpile_typed_expr_c(expr, &var_type)?
         ))
     }
 
@@ -620,7 +625,13 @@ impl Transpiler {
                 // special handling for primitive operations not found in C++ natively
                 match op.as_str() {
                     "::" => Ok(format!("concatenate({}, {})", self.transpile_typed_expr_c(l, target)?, self.transpile_typed_expr_c(r, target)?)),
-                    "->" => Ok(format!("{}.arrow({}.bind())", self.transpile_typed_expr_c(l, target)?, self.transpile_typed_expr_c(r, target)?)),
+                    "->" => {
+                        let left_side = match get_expr_type(l, &self.symbol_table.clone().borrow())?.basic_type {
+                            SimpleType::IOMonad(_, _) => self.transpile_typed_expr_c(l, target)?,
+                            _ => format!("{}({})", target.basic_type.as_ctype_str(), self.transpile_typed_expr_c(l, target)?)
+                        };
+                        Ok(format!("{}.arrow({})", left_side, self.transpile_typed_expr_c(r, target)?))
+                    }
                     ".." => {
                         let start = fold_constexpr_index(&l);
                         let end = fold_constexpr_index(&r);
@@ -734,11 +745,16 @@ impl Transpiler {
                 self.transpile_typed_expr_c(r, &Type::from_basic(SimpleType::Str))?
             )),
 
-            SyntaxNode::MonadicExpr(body) => {
-                let monad_func_name = self.get_next_auxilliary_func_name();
+            SyntaxNode::MonadicExpr(body, Some((param_id, param_type)), rt) => {
                 let monad_body = self.transpile_c_tree(&body, 1)?;
-                self.functions_source.push(format!("void {}() {{\n{}\n}}", monad_func_name, monad_body));
-                Ok(format!("IO<std::function<void()>>({})", monad_func_name))
+                let monad_lambda = format!("[]({} {}) {{\n{}\n}}", param_type.as_ctype_str(), param_id, monad_body);
+                Ok(format!("IO<std::function<{0}({0})>>({1})", rt.as_ctype_str(), monad_lambda))
+            }
+
+            SyntaxNode::MonadicExpr(body, None, rt) => {
+                let monad_body = self.transpile_c_tree(&body, 1)?;
+                let monad_lambda = format!("[]() {{\n{}\n}}", monad_body);
+                Ok(format!("{}({})", rt.as_ctype_str(), monad_lambda))
             }
 
             other => panic!("{:?} is not a valid expression node!", other)
@@ -1054,6 +1070,84 @@ mod test {
 
 
     #[test]
+    fn test_string_io() {        
+        let scanner = Scanner::from_str("
+            fn print_hello_world() -> IO<void> {
+                return do {
+                    print(\"Hello world!\");
+                };
+            }
+            
+            
+            fn main() -> IO<void> {
+                return print_hello_world();
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    fn test_composite_string_io() {
+        let scanner = Scanner::new("tests/test_composite_string_io.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    fn test_composite_int_io() {
+        let scanner = Scanner::from_str("
+            fn square() -> IO<i32> {
+                return do(x: i32) {
+                    return x * x;
+                };
+            }
+
+
+            fn main() -> i32 {
+                let m: IO<i32> = 10 -> square();
+                return 1;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    fn test_do_block_literal_composition() {
+        let scanner = Scanner::from_str("
+            fn main() -> IO<void> {
+                return do {
+                    print(\"Hey there\");
+                } -> do {
+                    print(\"Hello world!\");
+                };
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    #[ignore]
+    fn test_externally_bound_variables() {
+
+    }
+
+
+    #[test]
     fn test_runge_kutta() {
         let scanner = Scanner::new("tests/test_runge_kutta.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
@@ -1062,6 +1156,32 @@ mod test {
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_composition_types() {
+        let scanner = Scanner::from_str("
+            fn main() -> IO<void> {
+                return do {
+                    print(\"Hey there\");
+                } -> do {
+                    return 1.0;
+                };
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    #[ignore]
+    fn test_io_outside_monad() {
+
+    }
 
     #[test]
     #[should_panic]
