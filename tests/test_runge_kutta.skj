@@ -23,7 +23,11 @@ fn runge_kutta_4(y_0: f32, t_0: f32, t_n: f32, h: f32) -> f32 {
     return y;
 }
 
-fn main() -> u32 {
+fn main() -> IO<void> {
     let result: f32 = runge_kutta_4(1, 0, 2, 0.1);
-    return 1;
+    let result_action: IO<void> = do {
+        print(float2str(result));
+    };
+    
+    return result_action;
 }

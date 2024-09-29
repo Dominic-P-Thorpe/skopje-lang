@@ -259,10 +259,9 @@ impl Transpiler {
         };
 
         Ok(format!(
-            "{}{}{} {} = {};",
+            "{}{}auto {} = {};",
             "    ".repeat(indent), 
             is_const,
-            var_type.basic_type.as_ctype_str(),
             id, 
             self.transpile_typed_expr_c(expr, &var_type)?
         ))
@@ -760,19 +759,80 @@ impl Transpiler {
             )),
 
             SyntaxNode::MonadicExpr(body, Some((param_id, param_type)), rt) => {
+                let captured_vars = self.get_captured_lambda_variables(body, &vec![param_id.to_string()]);
                 let monad_body = self.transpile_c_tree(&body, 1)?;
-                let monad_lambda = format!("[]({} {}) {{\n{}\n}}", param_type.as_ctype_str(), param_id, monad_body);
+                let monad_lambda = format!("[{}]({} {}) {{\n{}\n}}", captured_vars.join(", "), param_type.as_ctype_str(), param_id, monad_body);
                 Ok(format!("IO<std::function<{0}({0})>>({1})", rt.as_ctype_str(), monad_lambda))
             }
 
             SyntaxNode::MonadicExpr(body, None, rt) => {
+                let captured_vars = self.get_captured_lambda_variables(body, &vec![]);
                 let monad_body = self.transpile_c_tree(&body, 1)?;
-                let monad_lambda = format!("[]() {{\n{}\n}}", monad_body);
+                let monad_lambda = format!("[{}]() {{\n{}\n}}", captured_vars.join(", "), monad_body);
                 Ok(format!("IO<std::function<{}()>>({})", rt.as_ctype_str(), monad_lambda))
             }
 
             other => panic!("{:?} is not a valid expression node!", other)
         }
+    }
+
+
+    fn get_captured_lambda_variables(&self, tree: &SyntaxTree, excluded: &Vec<String>) -> Vec<String> {
+        match &tree.node {
+            SyntaxNode::Identifier(id) => if !excluded.contains(&id) {
+                vec![id.to_string()]
+            } else { vec![] },
+
+            SyntaxNode::ReturnStmt(body)
+            | SyntaxNode::LetStmt(_, _, body)
+            | SyntaxNode::ReassignmentStmt(_, body, _)
+            | SyntaxNode::LeftAssocUnaryOperation(_, body)
+            | SyntaxNode::RightAssocUnaryOperation(_, body) => self.get_captured_lambda_variables(&*body, excluded),
+
+            SyntaxNode::BinaryOperation(_, l, r) => vec![
+                self.get_captured_lambda_variables(&*l, excluded),
+                self.get_captured_lambda_variables(&*r, excluded)
+            ].concat(),
+
+            SyntaxNode::TernaryExpression(expr, l, r) => vec![
+                self.get_captured_lambda_variables(&*expr, excluded),
+                self.get_captured_lambda_variables(&*l, excluded),
+                self.get_captured_lambda_variables(&*r, excluded)
+            ].concat(),
+
+            SyntaxNode::StmtBlock(body, _) => self.get_captured_lambda_variables_from_body(&body, excluded),
+            SyntaxNode::WhileStmt(expr, body)
+            | SyntaxNode::ForStmt(_, _, expr, body) => vec![
+                self.get_captured_lambda_variables(&*expr, excluded),
+                self.get_captured_lambda_variables(&*body, excluded)
+            ].concat(),
+
+            SyntaxNode::FunctionCall(_, params) => self.get_captured_lambda_variables_from_body(params, excluded),
+            SyntaxNode::SelectionStatement(body, expr, else_block) => {
+                match &**else_block {
+                    None => vec![
+                        self.get_captured_lambda_variables(&*expr, excluded),
+                        self.get_captured_lambda_variables(&*body, excluded)
+                    ].concat(),
+
+                    Some(e) => vec![
+                        self.get_captured_lambda_variables(&*expr, excluded),
+                        self.get_captured_lambda_variables(&*body, excluded),
+                        self.get_captured_lambda_variables(&e, excluded)
+                    ].concat()
+                }
+            }
+
+            _ => vec![]
+        }
+    }
+
+
+    fn get_captured_lambda_variables_from_body(&self, body: &Vec<SyntaxTree>, excluded: &Vec<String>) -> Vec<String> {
+        body.into_iter()
+            .map(|s| self.get_captured_lambda_variables(s, excluded))
+            .collect::<Vec<Vec<String>>>()
+            .concat()
     }
 
 

@@ -1722,8 +1722,6 @@ impl Parser {
         let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
         let return_type = self.current_symbol_table.borrow().get(&id).unwrap();
 
-        println!("ID: {} -> {}", id, return_type.get_type().basic_type.as_ctype_str());
-
         match return_type.get_type().basic_type {
             SimpleType::IOMonad(_, _) => {
                 if !self.in_monad {
