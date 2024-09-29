@@ -1604,7 +1604,10 @@ impl Parser {
         let root: SyntaxTree = self.parse_cast()?;
         loop {
             match self.tokens.front().unwrap().token_type {
-                TokenType::Dot => return self.parse_dot_rhs(root),
+                TokenType::Dot => {
+                    self.tokens.pop_front().unwrap();
+                    return self.parse_dot_rhs(root)
+                },
                 // End of this level of precedence
                 _ => break
             }
@@ -1615,42 +1618,54 @@ impl Parser {
 
 
     fn parse_dot_rhs(&mut self, left: SyntaxTree) -> Result<SyntaxTree, Box<dyn Error>> {
-        let next_token = self.tokens.pop_front().unwrap();
-        assert_token_type!(next_token, Dot);
+        let root = left;
 
-        let left_type = get_expr_type(&left, &self.current_symbol_table.borrow())?; 
-        let (left_line, left_col) = (left.start_line, left.start_index);
-        let right = match left_type.basic_type {
+        let root_type = get_expr_type(&root, &self.current_symbol_table.borrow())?; 
+        let (root_line, root_col) = (root.start_line, root.start_index);
+        let mut root = match root_type.basic_type {
+            // structs and enums support the . operator
             SimpleType::Struct(_, _, _) | SimpleType::Enum(_, _, _, _, _) => {
                 let next_token = self.tokens.pop_front().unwrap();
                 let following_token = self.tokens.front().unwrap();
                 match next_token.token_type {
+                    // we must have an identifier after the . operator
                     TokenType::Identifier(id) => {
                         match following_token.token_type {
+                            // is a function call
                             TokenType::OpenParen => {
                                 self.tokens.pop_front().unwrap();
-                                self.parse_function_call(id, next_token.line_number, next_token.col_number)?
+
+                                let func_call_node = self.parse_function_call(id, next_token.line_number, next_token.col_number)?;
+                                SyntaxTree::new(
+                                    SyntaxNode::BinaryOperation(".".to_string(), Box::new(root), Box::new(func_call_node)), 
+                                    root_line, root_col
+                                )
                             }
 
-                            _ => SyntaxTree::new(
-                                SyntaxNode::Identifier(id), 
-                                next_token.line_number, 
-                                next_token.col_number
-                            ),
+                            // is a plain identifier
+                            _ => {
+                                let identifier_node = SyntaxTree::new(SyntaxNode::Identifier(id), root_line, root_col);
+                                SyntaxTree::new(
+                                    SyntaxNode::BinaryOperation(".".to_string(), Box::new(root), Box::new(identifier_node)), 
+                                    root_line, root_col
+                                )
+                            }
                         }
                     }
                     _ => panic!()
                 }
             }
 
-            _ => self.parse_cast()?
+            // the root is not an expression which supports the . operator
+            _ => panic!()
         };
 
-        Ok(SyntaxTree::new(SyntaxNode::BinaryOperation(
-            ".".to_owned(),
-            Box::new(left),
-            Box::new(right),
-        ), left_line, left_col))
+        if let TokenType::Dot = self.tokens.front().unwrap().token_type {
+            self.tokens.pop_front().unwrap();
+            root = self.parse_dot_rhs(root)?;
+        }
+
+        Ok(root)
     }
 
 

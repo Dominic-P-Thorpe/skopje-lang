@@ -16,10 +16,10 @@ fn main() -> i32 {
         [7, 8, 9]
     ];
 
-    let mut total: u64 = 0;
+    let mut total2: u32 = 0;
     for (row: u32[3] in matrix) {
         for (col: u32 in row) {
-            total = total + col;
+            total2 = total2 + col;
         }
     }
 

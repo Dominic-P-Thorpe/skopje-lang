@@ -230,4 +230,14 @@ std::string bool2str(bool b) {
     return b ? "true" : "false";
 }
 
+
+uint64_t logical_right(uint64_t target, unsigned int bits) {
+    return target >> bits;
+}
+
+
+int64_t arith_right(uint64_t target, unsigned int bits) {
+    return target >> bits;
+}
+
 #endif

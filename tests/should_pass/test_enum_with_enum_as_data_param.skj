@@ -1,0 +1,18 @@
+enum ParamEnum { ParamA, ParamB(internal: i32) }
+enum MyEnum { VariantA(a: i32, b: ParamEnum), VariantB(a: i32), VariantC }
+
+fn main() -> i32 {
+    let my_enum: MyEnum = MyEnum::VariantA(a: 5, b: ParamEnum::ParamB(internal: 20));
+    match my_enum {
+        MyEnum::VariantA(x, y) => {
+            match y {
+                ParamEnum::ParamA => { return x; },
+                ParamEnum::ParamB(z) => {return x + z; }
+            }
+        },
+        MyEnum::VariantB(a) => { return a; },
+        MyEnum::VariantC => { return 3; }
+    }
+
+    return 0;
+}

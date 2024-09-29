@@ -1,5 +1,6 @@
 /target
 Cargo.lock
+*.txt
 *.skj
 *.exe
 *.cpp
@@ -8,6 +9,7 @@ Cargo.lock
 !c_libs/*.h
 c_libs/*.gch
 c_libs/test.cpp
-!tests/*
+!tests/should_pass/*.skj
+!tests/should_fail/*.skj
 .vscode
 .editorconfig

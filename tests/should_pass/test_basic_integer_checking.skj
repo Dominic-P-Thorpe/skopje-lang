@@ -46,3 +46,8 @@ fn test_bool() -> bool {
 
     return y;
 }
+
+
+fn main() -> i32 {
+    return 1;
+}

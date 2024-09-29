@@ -167,16 +167,26 @@ impl Transpiler {
             SyntaxNode::Program(_) => panic!("Got program when I should not have!"),
 
             SyntaxNode::FunctionCall(func_id, args) => {
-                let args: Vec<String> = args.iter()
-                                            .map(|arg| self.transpile_typed_expr_c(arg, &Type::from_basic(SimpleType::Void)).unwrap())
-                                            .collect();
-                if func_id == "print" {
-                    return Ok(format!("{}std::cout << ({}) << std::endl;", "    ".repeat(indent), args.first().unwrap()));
-                } else if func_id == "readln" {
-                    return Ok(format!("{}readln({});", "    ".repeat(indent), args.first().unwrap()));
+                let func_type = self.symbol_table.borrow().get(func_id).unwrap().get_type();
+                let func_arg_types = match func_type.basic_type {
+                    SimpleType::Function(_, args) => args,
+                    SimpleType::IOMonad(_, None) => vec![],
+                    SimpleType::IOMonad(_, Some(param)) => vec![*param],
+                    other => panic!("Expected function or IO monad, got {:?}", other)
+                }; 
+
+                let mut transpiled_args: Vec<String> = vec![];
+                for i in 0..args.len() {
+                    transpiled_args.push(self.transpile_typed_expr_c(args.get(i).unwrap(), &func_arg_types.get(i).unwrap()).unwrap())
                 }
 
-                Ok(format!("{}{}({});", "    ".repeat(indent), func_id, args.join(", ")))
+                if func_id == "print" {
+                    return Ok(format!("{}std::cout << ({}) << std::endl;", "    ".repeat(indent), transpiled_args.first().unwrap()));
+                } else if func_id == "readln" {
+                    return Ok(format!("{}readln({});", "    ".repeat(indent), transpiled_args.first().unwrap()));
+                }
+
+                Ok(format!("{}{}({});", "    ".repeat(indent), func_id, transpiled_args.join(", ")))
             },
 
             SyntaxNode::SelectionStatement(cond, if_body, else_body) => {
@@ -258,10 +268,16 @@ impl Transpiler {
             _ => var_type.clone()
         };
 
+        let var_type_str = match var_type.basic_type {
+            SimpleType::IOMonad(_, _) => String::from("auto"),
+            _ => var_type.as_ctype_str()
+        };
+
         Ok(format!(
-            "{}{}auto {} = {};",
+            "{}{}{} {} = {};",
             "    ".repeat(indent), 
             is_const,
+            var_type_str,
             id, 
             self.transpile_typed_expr_c(expr, &var_type)?
         ))
@@ -656,8 +672,8 @@ impl Transpiler {
 
                         Ok(format!("{}{}{}", self.transpile_typed_expr_c(l, target)?, operator, self.transpile_typed_expr_c(r, target)?))
                     }
-                    ">>" => todo!(),
-                    ">>>" => todo!(),
+                    ">>" => Ok(format!("arith_right({}, {})", self.transpile_typed_expr_c(l, &Type::from_basic(SimpleType::I64))?, self.transpile_typed_expr_c(l, &Type::from_basic(SimpleType::U64))?)),
+                    ">>>" => Ok(format!("logical_right({}, {})", self.transpile_typed_expr_c(l, &Type::from_basic(SimpleType::U64))?, self.transpile_typed_expr_c(l, &Type::from_basic(SimpleType::U64))?)),
                     _ => Ok(format!("{} {} {}", self.transpile_typed_expr_c(l, target)?, op, self.transpile_typed_expr_c(r, target)?)) 
                 }
             }
@@ -692,14 +708,23 @@ impl Transpiler {
             }
 
             SyntaxNode::FunctionCall(func_id, args) => {
-                let args: Vec<String> = args.iter()
-                                            .map(|arg| self.transpile_typed_expr_c(arg, &Type::from_basic(SimpleType::Void)).unwrap())
-                                            .collect();
+                let func_type = self.symbol_table.borrow().get(func_id).unwrap().get_type();
+                let func_arg_types = match func_type.basic_type {
+                    SimpleType::Function(_, args) => args,
+                    SimpleType::IOMonad(_, _) => vec![],
+                    other => panic!("Expected function or IO monad, got {:?}", other)
+                }; 
+
+                let mut transpiled_args: Vec<String> = vec![];
+                for i in 0..args.len() {
+                    transpiled_args.push(self.transpile_typed_expr_c(args.get(i).unwrap(), &func_arg_types.get(i).unwrap()).unwrap())
+                }
+                
                 if func_id == &String::from("print") {
-                    return Ok(format!("printf({})", args.first().unwrap()));
+                    return Ok(format!("printf({})", transpiled_args.first().unwrap()));
                 }
 
-                Ok(format!("{}({})", func_id, &args.join(", ")))
+                Ok(format!("{}({})", func_id, &transpiled_args.join(", ")))
             },
 
             SyntaxNode::TupleLiteral(expressions) => {
@@ -716,7 +741,7 @@ impl Transpiler {
                 Ok(format!(
                     "make_array<{}, {}>({})",
                     get_array_inner_type(&target).as_ctype_str(),
-                    3,
+                    elems.len(),
                     elems.iter()
                          .map(|e| self.transpile_typed_expr_c(e, &get_array_inner_type(&target)).unwrap())
                          .collect::<Vec<String>>()
@@ -789,7 +814,15 @@ impl Transpiler {
             | SyntaxNode::LeftAssocUnaryOperation(_, body)
             | SyntaxNode::RightAssocUnaryOperation(_, body) => self.get_captured_lambda_variables(&*body, excluded),
 
-            SyntaxNode::BinaryOperation(_, l, r) => vec![
+            SyntaxNode::BinaryOperation(op, l, r) => match op.as_str() {
+                "." => self.get_captured_lambda_variables(&*l, excluded),
+                _ => vec![
+                    self.get_captured_lambda_variables(&*l, excluded),
+                    self.get_captured_lambda_variables(&*r, excluded)
+                ].concat()
+            },
+
+            SyntaxNode::ConcatStr(l, r) => vec![
                 self.get_captured_lambda_variables(&*l, excluded),
                 self.get_captured_lambda_variables(&*r, excluded)
             ].concat(),
@@ -800,14 +833,14 @@ impl Transpiler {
                 self.get_captured_lambda_variables(&*r, excluded)
             ].concat(),
 
-            SyntaxNode::StmtBlock(body, _) => self.get_captured_lambda_variables_from_body(&body, excluded),
+            SyntaxNode::StmtBlock(body, _) => self.get_captured_lambda_variables_from_vec(&body, excluded),
             SyntaxNode::WhileStmt(expr, body)
             | SyntaxNode::ForStmt(_, _, expr, body) => vec![
                 self.get_captured_lambda_variables(&*expr, excluded),
                 self.get_captured_lambda_variables(&*body, excluded)
             ].concat(),
 
-            SyntaxNode::FunctionCall(_, params) => self.get_captured_lambda_variables_from_body(params, excluded),
+            SyntaxNode::FunctionCall(_, params) => self.get_captured_lambda_variables_from_vec(params, excluded),
             SyntaxNode::SelectionStatement(body, expr, else_block) => {
                 match &**else_block {
                     None => vec![
@@ -828,7 +861,7 @@ impl Transpiler {
     }
 
 
-    fn get_captured_lambda_variables_from_body(&self, body: &Vec<SyntaxTree>, excluded: &Vec<String>) -> Vec<String> {
+    fn get_captured_lambda_variables_from_vec(&self, body: &Vec<SyntaxTree>, excluded: &Vec<String>) -> Vec<String> {
         body.into_iter()
             .map(|s| self.get_captured_lambda_variables(s, excluded))
             .collect::<Vec<Vec<String>>>()
@@ -959,7 +992,7 @@ mod test {
 
     #[test]
     fn test_for_loop() {
-        let scanner = Scanner::new("tests/test_for_loop.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_for_loop.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
@@ -992,7 +1025,7 @@ mod test {
 
     #[test]
     fn test_match_self() {
-        let scanner = Scanner::new("tests/test_match_self.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_match_self.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
@@ -1025,26 +1058,7 @@ mod test {
 
     #[test]
     fn test_enum_with_enum_as_data_param() {
-        let scanner = Scanner::from_str("
-            enum ParamEnum { ParamA, ParamB(internal: i32) }
-            enum MyEnum { VariantA(a: i32, b: ParamEnum), VariantB(a: i32), VariantC }
-
-            fn main() -> i32 {
-                let my_enum: MyEnum = MyEnum::VariantA(a: 5, b: ParamEnum::ParamB(internal: 20));
-                match my_enum {
-                    MyEnum::VariantA(x, y) => {
-                        match y {
-                            ParamEnum::ParamA => { return x; },
-                            ParamEnum::ParamB(z) => {return x + z; }
-                        }
-                    },
-                    MyEnum::VariantB(a) => { return a; },
-                    MyEnum::VariantC => { return 3; }
-                }
-
-                return 0;
-            }
-        ".to_owned()).unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_enum_with_enum_as_data_param.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
@@ -1135,7 +1149,7 @@ mod test {
 
     #[test]
     fn test_struct_with_methods() {
-        let scanner = Scanner::new("tests/test_struct_with_methods.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_struct_with_methods.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
@@ -1166,7 +1180,7 @@ mod test {
 
     #[test]
     fn test_composite_string_io() {
-        let scanner = Scanner::new("tests/test_composite_string_io.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_composite_string_io.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
@@ -1216,7 +1230,7 @@ mod test {
 
     #[test]
     fn test_externally_bound_variables() {
-        let scanner = Scanner::new("tests/test_externally_bound_variables.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_externally_bound_variables.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
@@ -1225,7 +1239,7 @@ mod test {
 
     #[test]
     fn test_runge_kutta() {
-        let scanner = Scanner::new("tests/test_runge_kutta.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_runge_kutta.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");

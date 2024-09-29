@@ -328,22 +328,23 @@ pub fn get_monad_return_type(tree: &SyntaxTree, context: &SymbolTable) -> Option
 
 
 fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &SymbolTable) -> Result<Type, Box<dyn Error>> {
+    // if the right type is num, make the right type be the type of l
     let right_type: Type = match right_type {
         None => match &l.node {
             SyntaxNode::BinaryOperation(_, left, right) => {
                 let left_type = match &left.node {
                     SyntaxNode::Identifier(id) => context.get(&id).expect(id).get_type(),
                     SyntaxNode::SelfIdentifier => context.get(&String::from("self")).unwrap().get_type(),
-                    SyntaxNode::BinaryOperation(_, _, _) => get_struct_member_type(Some(get_expr_type(right, context)?), left, context)?,
+                    SyntaxNode::BinaryOperation(_, _, _) => get_struct_member_type(None, left, context)?,
                     SyntaxNode::ArrayIndexingOperation(_, array) => get_array_inner_type(&get_expr_type(array, context)?),
                     other => panic!("Expected identifier, got {:?}", other)
                 };
                 return get_struct_member_type(Some(left_type), &right, context);
             }
-
+            
             _ => panic!()
         },
-
+        
         Some(l) => l
     };
     
@@ -369,6 +370,7 @@ fn get_struct_member_type(right_type: Option<Type>, l: &SyntaxTree, context: &Sy
             }
 
             let right_type = get_expr_type(&right, context)?;
+            println!("right_type: {:?}", right_type);
             get_struct_member_type(Some(right_type), left, context)
         }
 
@@ -667,7 +669,7 @@ mod tests {
 
     #[test]
     fn test_basic_integer_checking() {
-        let scanner = Scanner::new("tests/test_basic_integer_checking.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_basic_integer_checking.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -675,7 +677,7 @@ mod tests {
 
     #[test]
     fn test_tuples() {
-        let scanner = Scanner::new("tests/test_tuples.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_tuples.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -683,7 +685,7 @@ mod tests {
 
     #[test]
     fn test_basic_array() {
-        let scanner = Scanner::new("tests/test_basic_array.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_basic_array.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -691,7 +693,7 @@ mod tests {
 
     #[test]
     fn test_multidimensional_array() {
-        let scanner = Scanner::new("tests/test_multidimensional_array.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_multidimensional_array.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -699,7 +701,7 @@ mod tests {
 
     #[test]
     fn test_basic_enum() {
-        let scanner = Scanner::new("tests/test_basic_enum.skj").unwrap();
+        let scanner = Scanner::new("tests/should_pass/test_basic_enum.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -708,7 +710,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_malformed_tuple() {
-        let scanner = Scanner::new("tests/test_malformed_tuple.skj").unwrap();
+        let scanner = Scanner::new("tests/should_fail/test_malformed_tuple.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -717,7 +719,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_non_constexpr_tuple_index() {
-        let scanner = Scanner::new("tests/test_non_constexpr_tuple_index.skj").unwrap();
+        let scanner = Scanner::new("tests/should_fail/test_non_constexpr_tuple_index.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -726,7 +728,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_heterogenous_array() {
-        let scanner = Scanner::new("tests/test_heterogenous_array.skj").unwrap();
+        let scanner = Scanner::new("tests/should_fail/test_heterogenous_array.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -735,7 +737,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_ill_typed_array() {
-        let scanner = Scanner::new("tests/test_ill_typed_array.skj").unwrap();
+        let scanner = Scanner::new("tests/should_fail/test_ill_typed_array.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -744,7 +746,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_for_loop_no_array() {
-        let scanner = Scanner::new("tests/test_for_loop_no_array.skj").unwrap();
+        let scanner = Scanner::new("tests/should_fail/test_for_loop_no_array.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -753,7 +755,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_for_loop_inconsistent_iter_type() {
-        let scanner = Scanner::new("tests/test_for_loop_inconsistent_iter_type.skj").unwrap();
+        let scanner = Scanner::new("tests/should_fail/test_for_loop_inconsistent_iter_type.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
@@ -762,7 +764,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_enum_without_variant() {
-        let scanner = Scanner::new("tests/test_enum_without_variant.skj").unwrap();
+        let scanner = Scanner::new("tests/should_fail/test_enum_without_variant.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
