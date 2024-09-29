@@ -1836,24 +1836,7 @@ impl Parser {
     fn parse_do_block(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         self.in_monad = true;
 
-        let param: Option<(String, Type)> = match self.tokens.front().unwrap().token_type {
-            TokenType::OpenParen => {
-                self.tokens.pop_front().unwrap();
-                let identifier = self.parse_identifier()?;
-                
-                let next_token = self.tokens.pop_front().unwrap();
-                assert_token_type!(next_token, Colon);
-
-                let t = self.parse_type()?;
-
-                let next_token = self.tokens.pop_front().unwrap();
-                assert_token_type!(next_token, CloseParen);
-
-                Some((identifier, t))
-            }
-            _ => None
-        };
-
+        let param: Option<(String, Type)> = self.parse_do_block_param()?;
         let next_token = self.tokens.pop_front().unwrap();
         let (line, col) = (next_token.line_number, next_token.col_number);
         assert_token_type!(next_token, OpenCurly);
@@ -1863,15 +1846,48 @@ impl Parser {
             None => self.parse_stmt_block(vec![])?
         };
 
-        // get the return type of the monad, which defaults to IO<void>
+        // get the return type of the monad, which defaults to IO<void>, if the return type is a
+        // monad, flatten the Monad<Monad<T>> to Monad<T>
         let default = Type::from_basic(SimpleType::IOMonad(Box::new(Type::from_basic(SimpleType::Void)), None));
         let return_type = get_monad_return_type(&body, &self.current_symbol_table.borrow()).unwrap_or(default);
+        let return_type = match &return_type.basic_type {
+            SimpleType::IOMonad(rt, _) => *rt.to_owned(),
+            _ => return_type
+        };
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, CloseCurly);
 
         self.in_monad = false;
         Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(Box::new(body), param, return_type), line, col))
+    }
+
+
+    fn parse_do_block_param(&mut self) -> Result<Option<(String, Type)>, Box<dyn Error>> {
+        match self.tokens.front().unwrap().token_type {
+            TokenType::OpenParen => {
+                self.tokens.pop_front().unwrap();
+                let identifier = match self.tokens.get(0).unwrap().token_type {
+                    TokenType::CloseParen => {
+                        self.tokens.pop_front().unwrap();
+                        return Ok(None)
+                    },
+                    TokenType::Identifier(_) => Some(self.parse_identifier()?),
+                    _ => panic!()
+                };
+
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, Colon);
+
+                let t = self.parse_type()?;
+
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, CloseParen);
+
+                Ok(Some((identifier.unwrap(), t)))
+            }
+            _ => Ok(None)
+        }
     }
 
 

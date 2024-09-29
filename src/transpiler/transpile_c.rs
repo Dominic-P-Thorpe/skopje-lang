@@ -89,6 +89,7 @@ impl Transpiler {
     /// let transpiler: Transpiler = Transpiler::new(syntax_tree, "my_file.cpp");
     /// println!("{}", transpiler.get_next_auxilliary_func_name());
     /// ```
+    #[allow(unused)]
     fn get_next_auxilliary_func_name(&mut self) -> String {
         let id_num: usize = self.auxilliary_func_index;
         self.auxilliary_func_index += 1;
@@ -142,7 +143,11 @@ impl Transpiler {
                                       .map(|(p_id, p_type)| format!("{} {}", p_type.basic_type.as_ctype_str(), p_id))
                                       .collect::<Vec<String>>()
                                       .join(", ");
-                let return_type_text = return_type.as_ctype_str();
+                let return_type_text = match return_type.basic_type {
+                    SimpleType::IOMonad(_, _) => "auto".to_owned(),
+                    _ => return_type.as_ctype_str()
+                };
+
                 let body_text = self.transpile_c_tree(body, indent + 1)?;
                 
                 // main function is a special case as it must have the return type of "int", so we
@@ -225,16 +230,6 @@ impl Transpiler {
                 self.transpile_typed_expr_c(id, var_type)?,
                 self.transpile_typed_expr_c(expr, var_type)?
             )),
-
-            SyntaxNode::MonadicExpr(body, _, _) => {
-                let monad_func_name = self.get_next_auxilliary_func_name();
-                let body_code: String = self.transpile_c_tree(body, indent + 1)?;
-                self.functions_source.push(
-                    format!("void {}() {{\n{}\n}}", monad_func_name, body_code)
-                );
-                
-                Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
-            }
 
             SyntaxNode::Enumeraion(name, variants, methods) => self.transpile_enum(name, variants, methods, indent),
             SyntaxNode::Struct(name, members, methods) => self.transpile_struct(name, members, methods, indent),
@@ -773,7 +768,7 @@ impl Transpiler {
             SyntaxNode::MonadicExpr(body, None, rt) => {
                 let monad_body = self.transpile_c_tree(&body, 1)?;
                 let monad_lambda = format!("[]() {{\n{}\n}}", monad_body);
-                Ok(format!("{}({})", rt.as_ctype_str(), monad_lambda))
+                Ok(format!("IO<std::function<{}()>>({})", rt.as_ctype_str(), monad_lambda))
             }
 
             other => panic!("{:?} is not a valid expression node!", other)
@@ -1160,9 +1155,11 @@ mod test {
 
 
     #[test]
-    #[ignore]
     fn test_externally_bound_variables() {
-
+        let scanner = Scanner::new("tests/test_externally_bound_variables.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
     }
 
 

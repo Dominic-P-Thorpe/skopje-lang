@@ -1,0 +1,12 @@
+fn my_external_monad() -> IO<i32> {
+    let x: i32 = 20;
+    let y: i32 = 40;
+    return do() {
+        return x + y;
+    };
+}
+
+
+fn main() -> IO<i32> {
+    return my_external_monad();
+}

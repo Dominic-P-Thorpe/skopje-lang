@@ -252,7 +252,8 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
 
         SyntaxNode::MonadicExpr(_, Some((_, param_t)), rt) => 
             Ok(Type::new(SimpleType::IOMonad(Box::new(rt.clone()), Some(Box::new(param_t.clone()))), false, vec![rt.clone()])),
-        SyntaxNode::MonadicExpr(_, None, rt) => Ok(rt.clone()),
+        SyntaxNode::MonadicExpr(_, None, rt) => 
+            Ok(Type::new(SimpleType::IOMonad(Box::new(rt.clone()), None), false, vec![rt.clone()])),
         other => unimplemented!("Have not yet implemented {:?}", other)
     }
 }
