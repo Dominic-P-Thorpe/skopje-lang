@@ -82,7 +82,7 @@ impl SimpleType {
             Self::Str => String::from("std::string"),
             Self::Bool => String::from("bool"),
             Self::IOMonad(rt, None) => format!("IO<{}>", rt.as_ctype_str()),
-            Self::IOMonad(rt, _) => format!("{0}", rt.as_ctype_str()),
+            Self::IOMonad(_, pt) => format!("{}", pt.as_ref().unwrap().as_ctype_str()),
             Self::Iterator(inner) => format!("std::vector<{}>", inner.as_ctype_str()),
             Self::Array(inner_type, size) => format!("std::array<{}, {}>", inner_type.as_ctype_str(), size),
             Self::Tuple(types) => format!(

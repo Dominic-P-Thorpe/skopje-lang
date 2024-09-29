@@ -90,7 +90,8 @@ public:
      * @return Monad<T> A monad containing the result of the arrow applied to the value of this 
      * monad
      */
-    Monad<T> arrow(Monad<std::function<T(T)>> right) {
+    template <typename U>
+    Monad<T> arrow(Monad<U> right) {
         return Monad<T>(right.getObject()(this->object));
     }
     
@@ -124,6 +125,11 @@ public:
 };
 
 
+/** This concept ensures that the passed type T is an std::function */
+template<typename T>
+concept IsStdFunction = requires { typename std::function<T>; };
+
+
 /**
  * @brief Used to represent IO actions in a monadic way to ensure that they happen in a defined, 
  * sequential order which is not affected by automatic concurrency.
@@ -140,24 +146,33 @@ public:
      */
     IO(T obj) : Monad<T>(obj) {}
 
-    virtual IO<T> arrow(Monad<std::function<T(T)>> right) {
-        auto l = this->getObject();
-        auto r = right.getObject();
-        std::function<T()> inner = [l, r] () {
-            return r(l);
-        };
-
-        return IO<T>(inner());
+    
+    /**
+     * @brief Composes the value contained by the IO monad (which is a function) with the contained 
+     * by the monad passed (which is also a function).
+     * 
+     * @tparam U The type signature of the function, also used to distinguish this function from
+     * its overload which does not take a type parameter
+     * @param right The monad to compose with this monad such that the value in left is passed to
+     * the function in right.
+     * @return IO<T> The monad representing the result of the 2 passed monads.
+     */
+    template <typename U>
+    IO<T> arrow(Monad<U> right) requires IsStdFunction<U> {
+        T l = this->getObject();
+        U r = right.getObject();
+        return IO<T>(r(l));
     }
 
     /**
      * @brief Composes the value contained by the IO monad (which is a function) with the contained 
      * by the monad passed (which is also a function).
      * 
-     * @param right The monad to compose with this monad such that right(this)
+     * @param right The monad to compose with this monad such that the left value is executed and
+     * then the right is.
      * @return Monad<T> The monad representing the composition of the 2 previous monads
      */
-    virtual IO<T> arrow(Monad<T> right) {
+    IO<T> arrow(Monad<T> right) {
         auto l = this->getObject();
         auto r = right.getObject();
         T inner = [l, r] () {

@@ -630,7 +630,24 @@ impl Transpiler {
                             SimpleType::IOMonad(_, _) => self.transpile_typed_expr_c(l, target)?,
                             _ => format!("{}({})", target.basic_type.as_ctype_str(), self.transpile_typed_expr_c(l, target)?)
                         };
-                        Ok(format!("{}.arrow({})", left_side, self.transpile_typed_expr_c(r, target)?))
+
+                        match get_expr_type(r, &self.symbol_table.clone().borrow())?.basic_type {
+                            SimpleType::IOMonad(inner, _) => match inner.basic_type {
+                                SimpleType::Void => Ok(format!(
+                                    "{}.arrow({})", 
+                                    left_side, 
+                                    self.transpile_typed_expr_c(r, target)?
+                                )),
+    
+                                _ => Ok(format!(
+                                    "{0}.arrow<std::function<{1}({1})>>({2})", 
+                                    left_side, 
+                                    get_expr_type(r, &self.symbol_table.clone().borrow())?.basic_type.as_ctype_str(), 
+                                    self.transpile_typed_expr_c(r, target)?
+                                ))
+                            }
+                            other => Ok(other.as_ctype_str())
+                        }
                     }
                     ".." => {
                         let start = fold_constexpr_index(&l);
@@ -645,6 +662,8 @@ impl Transpiler {
 
                         Ok(format!("{}{}{}", self.transpile_typed_expr_c(l, target)?, operator, self.transpile_typed_expr_c(r, target)?))
                     }
+                    ">>" => todo!(),
+                    ">>>" => todo!(),
                     _ => Ok(format!("{} {} {}", self.transpile_typed_expr_c(l, target)?, op, self.transpile_typed_expr_c(r, target)?)) 
                 }
             }
