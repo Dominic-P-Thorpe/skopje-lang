@@ -166,7 +166,7 @@ impl Transpiler {
 
             SyntaxNode::Program(_) => panic!("Got program when I should not have!"),
 
-            SyntaxNode::FunctionCallStmt(func_id, args) => {
+            SyntaxNode::FunctionCall(func_id, args) => {
                 let args: Vec<String> = args.iter()
                                             .map(|arg| self.transpile_typed_expr_c(arg, &Type::from_basic(SimpleType::Void)).unwrap())
                                             .collect();
@@ -1190,14 +1190,7 @@ mod test {
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
-
-
-    #[test]
-    #[should_panic]
-    #[ignore]
-    fn test_io_outside_monad() {
-
-    }
+    
 
     #[test]
     #[should_panic]

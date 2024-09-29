@@ -131,7 +131,6 @@ pub enum SyntaxNode {
     MonadicExpr(Box<SyntaxTree>, Option<(String, Type)>, Type),
     /// function name, arguments
     FunctionCall(String, Vec<SyntaxTree>),
-    FunctionCallStmt(String, Vec<SyntaxTree>),
     StringLiteral(String),
     IntLiteral(u64),
     FloatLiteral(f64),
@@ -1212,15 +1211,12 @@ impl Parser {
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenParen);
-
-        let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
+        let call = self.parse_function_call(id, line_num, col_num);
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, Semicolon);
-        
-        let expr = SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments), line_num, col_num);
-        get_expr_type(&expr, &self.current_symbol_table.borrow()).unwrap();
-        return Ok(expr);
+
+        call
     }
 
 
@@ -1632,13 +1628,10 @@ impl Parser {
                     TokenType::Identifier(id) => {
                         match following_token.token_type {
                             TokenType::OpenParen => {
-                                self.tokens.pop_front();
-                                SyntaxTree::new(
-                                    SyntaxNode::FunctionCall(id, self.parse_func_args()?), 
-                                    next_token.line_number, 
-                                    next_token.col_number
-                                )
+                                self.tokens.pop_front().unwrap();
+                                self.parse_function_call(id, next_token.line_number, next_token.col_number)?
                             }
+
                             _ => SyntaxTree::new(
                                 SyntaxNode::Identifier(id), 
                                 next_token.line_number, 
@@ -1703,11 +1696,7 @@ impl Parser {
 
                 let func_call_paren = self.tokens.pop_front().unwrap();
                 match func_call_paren.token_type {
-                    TokenType::OpenParen => { // function call
-                        let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
-                        return Ok(SyntaxTree::new(SyntaxNode::FunctionCall(id, arguments), func_call_paren.line_number, func_call_paren.col_number));
-                    }
-
+                    TokenType::OpenParen => self.parse_function_call(id, func_call_paren.line_number, func_call_paren.col_number),
                     TokenType::OpenCurly => { // struct instantiation
                         let members = self.parse_struct_instantiation_members(&id)?;
                         return Ok(SyntaxTree::new(SyntaxNode::StructInstantiation(id, members), next_token.line_number, next_token.col_number))
@@ -1724,6 +1713,27 @@ impl Parser {
             TokenType::OpenSquare => self.parse_array_literal(next_token.line_number, next_token.col_number),
             _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Expression)))
         }
+    }
+
+
+    /// Parses a function call and its arguments, will return an error if a monad is returned from 
+    /// outside a monadic context
+    fn parse_function_call(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
+        let return_type = self.current_symbol_table.borrow().get(&id).unwrap();
+
+        println!("ID: {} -> {}", id, return_type.get_type().basic_type.as_ctype_str());
+
+        match return_type.get_type().basic_type {
+            SimpleType::IOMonad(_, _) => {
+                if !self.in_monad {
+                    panic!("Use of monad outside monadic context!");
+                }
+
+                Ok(SyntaxTree::new(SyntaxNode::FunctionCall(id, arguments), line_num, col_num))
+            },
+            _ => Ok(SyntaxTree::new(SyntaxNode::FunctionCall(id, arguments), line_num, col_num))
+        } 
     }
 
 
@@ -2150,6 +2160,24 @@ mod tests {
     #[should_panic]
     fn test_incorrect_return_type() {
         let scanner = Scanner::new("tests/test_incorrect_return_type.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_io_outside_monad() {
+        let scanner = Scanner::new("tests/test_io_outside_monad.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_io_outside_monad_expr() {
+        let scanner = Scanner::new("tests/test_io_outside_monad_expr.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }

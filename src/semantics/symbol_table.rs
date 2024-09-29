@@ -178,10 +178,8 @@ impl SymbolTable {
             None => {
                 let mut functions: HashMap<String, Symbol> = HashMap::new();
                 
-                let print_type = Type::from_basic(SimpleType::Function(
-                    Box::new(Type::from_basic(SimpleType::Void)), 
-                    vec![Type::from_basic(SimpleType::Str)]
-                ));
+                let print_type = Type::from_basic(SimpleType::IOMonad(
+                    Box::new(Type::from_basic(SimpleType::Void)), None));
 
                 let float2str_type = Type::from_basic(SimpleType::Function(
                     Box::new(Type::from_basic(SimpleType::Str)), 

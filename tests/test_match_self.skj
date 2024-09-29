@@ -16,6 +16,5 @@ with {
 
 fn main() -> i32 {
     let my_enum: MyEnum = MyEnum::A;
-    print(int2str(my_enum.get_index()));
     return 1;
 }

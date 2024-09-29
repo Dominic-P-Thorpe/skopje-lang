@@ -147,8 +147,7 @@ pub fn get_expr_type(expr: &SyntaxTree, context: &SymbolTable) -> Result<Type, B
             }
         }
 
-        SyntaxNode::FunctionCall(id, args) 
-        | SyntaxNode::FunctionCallStmt(id, args)=> {
+        SyntaxNode::FunctionCall(id, args) => {
             let (func_return_type, param_types) = match context.get(&id).unwrap().category {
                 SymbolType::Function(_, func_type) => match func_type.basic_type {
                     SimpleType::Function(rt, params) => (*rt, params),
