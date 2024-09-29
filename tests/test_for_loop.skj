@@ -1,11 +1,13 @@
 fn main() -> i32 {
+    let mut total: u32 = 0;
     for (i: u32 in 0..100) {
-        print("Hello world!");
+        total = total + i;
     }
 
+    let mut length: u32 = 0;
     let my_array: str[6] = ["Tom", "Jerry", "Bugs", "Cat in the Hat", "Bluey", "Moomintroll"];
     for (iterator: str in my_array) {
-        print(iterator);
+        length = length + 1;
     }
 
     let matrix: u32[3][3] = [

@@ -76,8 +76,8 @@ fn ode(t: f32, y: f32) -> f32 {
 }
 
 fn runge_kutta_4(y_0: f32, t_0: f32, t_n: f32, h: f32) -> f32 {
-    let t: f32 = t_0;
-    let y: f32 = y_0;
+    let mut t: f32 = t_0;
+    let mut y: f32 = y_0;
 
     while (t < t_n) {
         // Calculate the four Runge-Kutta increments (k1, k2, k3, k4)
@@ -96,30 +96,26 @@ fn runge_kutta_4(y_0: f32, t_0: f32, t_n: f32, h: f32) -> f32 {
     return y;
 }
 
-fn main() -> u32 {
+fn main() -> IO<void> {
     let result: f32 = runge_kutta_4(1, 0, 2, 0.1);
-    println(format("Result = {}", result));
-    return 1;
+    let result_action: IO<void> = do {
+        print(float2str(result));
+    };
+    
+    return result_action;
 }
 ```
 
 ## Roadmap
 
-- [x] Version 0.1.0 (current, unstable)
-  - [ ] Version 0.1.1 (strings deluxe)
-    - [ ] String conversion and formatting
-    - [ ] Casting to and from strings
-  - [ ] Version 0.1.2 (structs)
-    - [ ] Structs
-    - [ ] Implementations for structs
-- [ ] Version 0.2.X (Automatic Parallelism)
-  - [ ] Version 0.2.0 (Monads)
-  - [ ] Version 0.2.1 (Linear Types)
-  - [ ] Version 0.2.2 (Automatic Parallelism)
+- [ ] Version 0.2.0 (Automatic Parallelism)
+  - [x] Version 0.1.2 (Monads)
+  - [ ] Version 0.1.3 (Linear Types)
+  - [ ] Version 0.1.4 (Automatic Parallelism)
     - [ ] Dependency analysis
     - [ ] Automatic concurrency
-  - [ ] Version 0.2.3 (Functional Functions)
-    - [ ] Closures
+  - [ ] Version 0.1.5 (Functional Functions)
+    - [ ] Closures?
     - [ ] Anonymous functions
     - [ ] Function-type parameters
 - [ ] Version 0.3.X (Polymorphism and Genericity)

@@ -30,7 +30,7 @@ use std::rc::Rc;
 
 use crate::parser::types::{Type, SimpleType};
 use crate::semantics::symbol_table::SymbolTable;
-use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type};
+use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type, get_expr_type};
 use crate::{Pattern, SyntaxNode, SyntaxTree};
 
 
@@ -89,6 +89,7 @@ impl Transpiler {
     /// let transpiler: Transpiler = Transpiler::new(syntax_tree, "my_file.cpp");
     /// println!("{}", transpiler.get_next_auxilliary_func_name());
     /// ```
+    #[allow(unused)]
     fn get_next_auxilliary_func_name(&mut self) -> String {
         let id_num: usize = self.auxilliary_func_index;
         self.auxilliary_func_index += 1;
@@ -142,16 +143,20 @@ impl Transpiler {
                                       .map(|(p_id, p_type)| format!("{} {}", p_type.basic_type.as_ctype_str(), p_id))
                                       .collect::<Vec<String>>()
                                       .join(", ");
-                let return_type_text = return_type.as_ctype_str();
+                let return_type_text = match return_type.basic_type {
+                    SimpleType::IOMonad(_, _) => "auto".to_owned(),
+                    _ => return_type.as_ctype_str()
+                };
+
                 let body_text = self.transpile_c_tree(body, indent + 1)?;
                 
                 // main function is a special case as it must have the return type of "int", so we
                 // convert this function's name to a different name (__special__main())
                 if name.as_str() == "main" {
-                    return Ok(format!("\n{} __special__main() {{\n{} \n}}\n\n", return_type_text, body_text));
+                    return Ok(format!("\n{} __special__main() {{{} \n}}\n\n", return_type_text, body_text));
                 }
 
-                Ok(format!("\n{} {}({}) {{\n{} \n}}\n\n", return_type_text, name, args_string, body_text))
+                Ok(format!("\n{} {}({}) {{{} \n}}\n\n", return_type_text, name, args_string, body_text))
             }
 
             SyntaxNode::ReturnStmt(body) => {
@@ -161,7 +166,7 @@ impl Transpiler {
 
             SyntaxNode::Program(_) => panic!("Got program when I should not have!"),
 
-            SyntaxNode::FunctionCallStmt(func_id, args) => {
+            SyntaxNode::FunctionCall(func_id, args) => {
                 let args: Vec<String> = args.iter()
                                             .map(|arg| self.transpile_typed_expr_c(arg, &Type::from_basic(SimpleType::Void)).unwrap())
                                             .collect();
@@ -226,16 +231,6 @@ impl Transpiler {
                 self.transpile_typed_expr_c(expr, var_type)?
             )),
 
-            SyntaxNode::MonadicExpr(body) => {
-                let monad_func_name = self.get_next_auxilliary_func_name();
-                let body_code: String = self.transpile_c_tree(body, indent + 1)?;
-                self.functions_source.push(
-                    format!("void {}() {{\n{}\n}}", monad_func_name, body_code)
-                );
-                
-                Ok(format!("IOMonad<void(*)()>::lift({})", monad_func_name))
-            }
-
             SyntaxNode::Enumeraion(name, variants, methods) => self.transpile_enum(name, variants, methods, indent),
             SyntaxNode::Struct(name, members, methods) => self.transpile_struct(name, members, methods, indent),
             SyntaxNode::MatchStmt(_, _, _) => self.transpile_match_stmt(tree, indent),
@@ -258,13 +253,17 @@ impl Transpiler {
             false => ""
         };
 
+        let var_type = match var_type.clone().basic_type {
+            SimpleType::IOMonad(rt, _) => Type::from_basic(SimpleType::IOMonad(rt, None)),
+            _ => var_type.clone()
+        };
+
         Ok(format!(
-            "{}{}{} {} = {};",
+            "{}{}auto {} = {};",
             "    ".repeat(indent), 
             is_const,
-            var_type.as_ctype_str(),
             id, 
-            self.transpile_typed_expr_c(expr, var_type)?
+            self.transpile_typed_expr_c(expr, &var_type)?
         ))
     }
 
@@ -620,7 +619,30 @@ impl Transpiler {
                 // special handling for primitive operations not found in C++ natively
                 match op.as_str() {
                     "::" => Ok(format!("concatenate({}, {})", self.transpile_typed_expr_c(l, target)?, self.transpile_typed_expr_c(r, target)?)),
-                    "->" => Ok(format!("{}.arrow({}.bind())", self.transpile_typed_expr_c(l, target)?, self.transpile_typed_expr_c(r, target)?)),
+                    "->" => {
+                        let left_side = match get_expr_type(l, &self.symbol_table.clone().borrow())?.basic_type {
+                            SimpleType::IOMonad(_, _) => self.transpile_typed_expr_c(l, target)?,
+                            _ => format!("{}({})", target.basic_type.as_ctype_str(), self.transpile_typed_expr_c(l, target)?)
+                        };
+
+                        match get_expr_type(r, &self.symbol_table.clone().borrow())?.basic_type {
+                            SimpleType::IOMonad(inner, _) => match inner.basic_type {
+                                SimpleType::Void => Ok(format!(
+                                    "{}.arrow({})", 
+                                    left_side, 
+                                    self.transpile_typed_expr_c(r, target)?
+                                )),
+    
+                                _ => Ok(format!(
+                                    "{0}.arrow<std::function<{1}({1})>>({2})", 
+                                    left_side, 
+                                    get_expr_type(r, &self.symbol_table.clone().borrow())?.basic_type.as_ctype_str(), 
+                                    self.transpile_typed_expr_c(r, target)?
+                                ))
+                            }
+                            other => Ok(other.as_ctype_str())
+                        }
+                    }
                     ".." => {
                         let start = fold_constexpr_index(&l);
                         let end = fold_constexpr_index(&r);
@@ -634,6 +656,8 @@ impl Transpiler {
 
                         Ok(format!("{}{}{}", self.transpile_typed_expr_c(l, target)?, operator, self.transpile_typed_expr_c(r, target)?))
                     }
+                    ">>" => todo!(),
+                    ">>>" => todo!(),
                     _ => Ok(format!("{} {} {}", self.transpile_typed_expr_c(l, target)?, op, self.transpile_typed_expr_c(r, target)?)) 
                 }
             }
@@ -734,8 +758,81 @@ impl Transpiler {
                 self.transpile_typed_expr_c(r, &Type::from_basic(SimpleType::Str))?
             )),
 
+            SyntaxNode::MonadicExpr(body, Some((param_id, param_type)), rt) => {
+                let captured_vars = self.get_captured_lambda_variables(body, &vec![param_id.to_string()]);
+                let monad_body = self.transpile_c_tree(&body, 1)?;
+                let monad_lambda = format!("[{}]({} {}) {{\n{}\n}}", captured_vars.join(", "), param_type.as_ctype_str(), param_id, monad_body);
+                Ok(format!("IO<std::function<{0}({0})>>({1})", rt.as_ctype_str(), monad_lambda))
+            }
+
+            SyntaxNode::MonadicExpr(body, None, rt) => {
+                let captured_vars = self.get_captured_lambda_variables(body, &vec![]);
+                let monad_body = self.transpile_c_tree(&body, 1)?;
+                let monad_lambda = format!("[{}]() {{\n{}\n}}", captured_vars.join(", "), monad_body);
+                Ok(format!("IO<std::function<{}()>>({})", rt.as_ctype_str(), monad_lambda))
+            }
+
             other => panic!("{:?} is not a valid expression node!", other)
         }
+    }
+
+
+    fn get_captured_lambda_variables(&self, tree: &SyntaxTree, excluded: &Vec<String>) -> Vec<String> {
+        match &tree.node {
+            SyntaxNode::Identifier(id) => if !excluded.contains(&id) {
+                vec![id.to_string()]
+            } else { vec![] },
+
+            SyntaxNode::ReturnStmt(body)
+            | SyntaxNode::LetStmt(_, _, body)
+            | SyntaxNode::ReassignmentStmt(_, body, _)
+            | SyntaxNode::LeftAssocUnaryOperation(_, body)
+            | SyntaxNode::RightAssocUnaryOperation(_, body) => self.get_captured_lambda_variables(&*body, excluded),
+
+            SyntaxNode::BinaryOperation(_, l, r) => vec![
+                self.get_captured_lambda_variables(&*l, excluded),
+                self.get_captured_lambda_variables(&*r, excluded)
+            ].concat(),
+
+            SyntaxNode::TernaryExpression(expr, l, r) => vec![
+                self.get_captured_lambda_variables(&*expr, excluded),
+                self.get_captured_lambda_variables(&*l, excluded),
+                self.get_captured_lambda_variables(&*r, excluded)
+            ].concat(),
+
+            SyntaxNode::StmtBlock(body, _) => self.get_captured_lambda_variables_from_body(&body, excluded),
+            SyntaxNode::WhileStmt(expr, body)
+            | SyntaxNode::ForStmt(_, _, expr, body) => vec![
+                self.get_captured_lambda_variables(&*expr, excluded),
+                self.get_captured_lambda_variables(&*body, excluded)
+            ].concat(),
+
+            SyntaxNode::FunctionCall(_, params) => self.get_captured_lambda_variables_from_body(params, excluded),
+            SyntaxNode::SelectionStatement(body, expr, else_block) => {
+                match &**else_block {
+                    None => vec![
+                        self.get_captured_lambda_variables(&*expr, excluded),
+                        self.get_captured_lambda_variables(&*body, excluded)
+                    ].concat(),
+
+                    Some(e) => vec![
+                        self.get_captured_lambda_variables(&*expr, excluded),
+                        self.get_captured_lambda_variables(&*body, excluded),
+                        self.get_captured_lambda_variables(&e, excluded)
+                    ].concat()
+                }
+            }
+
+            _ => vec![]
+        }
+    }
+
+
+    fn get_captured_lambda_variables_from_body(&self, body: &Vec<SyntaxTree>, excluded: &Vec<String>) -> Vec<String> {
+        body.into_iter()
+            .map(|s| self.get_captured_lambda_variables(s, excluded))
+            .collect::<Vec<Vec<String>>>()
+            .concat()
     }
 
 
@@ -1047,6 +1144,86 @@ mod test {
 
 
     #[test]
+    fn test_string_io() {        
+        let scanner = Scanner::from_str("
+            fn print_hello_world() -> IO<void> {
+                return do {
+                    print(\"Hello world!\");
+                };
+            }
+            
+            
+            fn main() -> IO<void> {
+                return print_hello_world();
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    fn test_composite_string_io() {
+        let scanner = Scanner::new("tests/test_composite_string_io.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    fn test_composite_int_io() {
+        let scanner = Scanner::from_str("
+            fn square() -> IO<i32> {
+                return do(x: i32) {
+                    return x * x;
+                };
+            }
+
+
+            fn main() -> i32 {
+                let m: IO<i32> = 10 -> square();
+                return 1;
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    fn test_do_block_literal_composition() {
+        let scanner = Scanner::from_str("
+            fn main() -> IO<void> {
+                return do {
+                    print(\"Hey there\");
+                } -> do {
+                    print(\"Hello world!\");
+                };
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+
+
+    #[test]
+    fn test_externally_bound_variables() {
+        let scanner = Scanner::new("tests/test_externally_bound_variables.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+    }
+
+
+    #[test]
     fn test_runge_kutta() {
         let scanner = Scanner::new("tests/test_runge_kutta.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
@@ -1055,6 +1232,25 @@ mod test {
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
     }
 
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_composition_types() {
+        let scanner = Scanner::from_str("
+            fn main() -> IO<void> {
+                return do {
+                    print(\"Hey there\");
+                } -> do {
+                    return 1.0;
+                };
+            }
+        ".to_owned()).unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        let ast = parser.parse().unwrap();
+        Transpiler::new(ast, "test_out.cpp");
+        Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
+    }
+    
 
     #[test]
     #[should_panic]

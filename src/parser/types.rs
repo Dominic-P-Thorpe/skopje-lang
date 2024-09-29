@@ -33,7 +33,8 @@ pub enum SimpleType {
     /// - a hashmap of method names to their syntax trees, 
     /// - and a vector of traits the enum  inherits
     Enum(String, IndexMap<String, IndexMap<String, Type>>, Option<String>, HashMap<String, Box<Type>>, Vec<Type>),
-    IOMonad
+    /// value's type and optional parameter
+    IOMonad(Box<Type>, Option<Box<Type>>)
 }
 
 
@@ -53,7 +54,7 @@ impl SimpleType {
             "str" => Self::Str,
             "void" => Self::Void,
             "bool" => Self::Bool,
-            "IO" => Self::IOMonad,
+            "IO" => Self::IOMonad(Box::new(Type::from_basic(SimpleType::Void)), None),
             name => {
                 match symbol_table.get(&name.to_owned()) {
                     Some(t) => t.get_type().basic_type,
@@ -80,7 +81,8 @@ impl SimpleType {
             Self::F64 => String::from("double"),
             Self::Str => String::from("std::string"),
             Self::Bool => String::from("bool"),
-            Self::IOMonad => String::from("IOMonad"),
+            Self::IOMonad(rt, None) => format!("IO<{}>", rt.as_ctype_str()),
+            Self::IOMonad(_, pt) => format!("{}", pt.as_ref().unwrap().as_ctype_str()),
             Self::Iterator(inner) => format!("std::vector<{}>", inner.as_ctype_str()),
             Self::Array(inner_type, size) => format!("std::array<{}, {}>", inner_type.as_ctype_str(), size),
             Self::Tuple(types) => format!(
@@ -151,6 +153,15 @@ impl SimpleType {
                 }
             }
 
+            Self::IOMonad(self_rt, None) => {
+                match other {
+                    Self::IOMonad(other_rt, Some(param)) => {
+                        self_rt.is_compatible_with(&other_rt) && self_rt.is_compatible_with(&*param)
+                    }
+                    _ => false
+                }
+            }
+
             _ => false
         }
     }
@@ -207,7 +218,7 @@ impl Type {
     pub fn new_str(basic_type: String, linear: bool, generics: Vec<Type>, context: &SymbolTable) -> Result<Self, Box<dyn Error>> {
         let basic_type = SimpleType::from_string(&basic_type, context)?;
         let monadic: bool = match basic_type {
-            SimpleType::IOMonad => true,
+            SimpleType::IOMonad(_, _) => true,
             _ => false
         };
 
@@ -223,7 +234,7 @@ impl Type {
 
     pub fn new(basic_type: SimpleType, linear: bool, generics: Vec<Type>) -> Self {
         let monadic: bool = match basic_type {
-            SimpleType::IOMonad => true,
+            SimpleType::IOMonad(_, _) => true,
             _ => false
         };
 
@@ -239,7 +250,7 @@ impl Type {
 
     pub fn from_basic(basic_type: SimpleType) -> Self {
         let monadic: bool = match basic_type {
-            SimpleType::IOMonad => true,
+            SimpleType::IOMonad(_, _) => true,
             _ => false
         };
 
@@ -256,8 +267,24 @@ impl Type {
     /// Converts Skopje types to their closest equivalents in C using the stdint.h library.
     pub fn as_ctype_str(&self) -> String {
         let basic_type_str = self.basic_type.as_ctype_str().to_owned();
+
+        // monads are a special case where we must handle the return types depending on how they
+        // are being used
         if self.monadic {
-            return format!("{}<{}(*)()>", basic_type_str, self.generics.get(0).unwrap().as_ctype_str());
+            match &self.basic_type {
+                // monad returns nothing and represents a function whcih returns nothing and has
+                // no arguments
+                SimpleType::Void => return format!("IO<std::function<{}()>>", basic_type_str),
+
+                // a monad within a monad, requires flattening if it is a void monad
+                SimpleType::IOMonad(rt, _) => return match rt.basic_type {
+                    SimpleType::Void => format!("IO<std::function<void()>>"),
+                    _ => return format!("IO<std::function<{0}({0})>>", self.basic_type.as_ctype_str())
+                },
+
+                // monad returns something of type t and represents a function f: t -> t
+                _ => return format!("IO<std::function<{0}({0})>>", self.basic_type.as_ctype_str())
+            }
         }
 
         let generic_type_str = match self.generics.len() {

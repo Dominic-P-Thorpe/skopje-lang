@@ -127,10 +127,10 @@ pub enum SyntaxNode {
     /// condition, value if true, value if false
     TernaryExpression(Box<SyntaxTree>, Box<SyntaxTree>, Box<SyntaxTree>),
     ParenExpr(Box<SyntaxTree>),
-    MonadicExpr(Box<SyntaxTree>),
+    /// body of the monad, its parameter, and its return type
+    MonadicExpr(Box<SyntaxTree>, Option<(String, Type)>, Type),
     /// function name, arguments
     FunctionCall(String, Vec<SyntaxTree>),
-    FunctionCallStmt(String, Vec<SyntaxTree>),
     StringLiteral(String),
     IntLiteral(u64),
     FloatLiteral(f64),
@@ -172,7 +172,8 @@ pub struct Parser {
     current_return_type: Option<Type>,
     symbol_table_root: Rc<RefCell<SymbolTable>>,
     current_symbol_table: Rc<RefCell<SymbolTable>>,
-    auxilliary_var_index: usize
+    auxilliary_var_index: usize,
+    in_monad: bool
 }
 
 
@@ -181,15 +182,14 @@ impl Parser {
     /// [`Parser`] struct.  
     pub fn new(tokens: Vec<Token>) -> Self {
         let symbol_table_root = SymbolTable::new(None);
-        let parser = Parser { 
+        Parser { 
             tokens: VecDeque::from(tokens),
             symbol_table_root: symbol_table_root.clone(),
             current_symbol_table: symbol_table_root,
             auxilliary_var_index: 0,
-            current_return_type: None
-        };
-
-        parser
+            current_return_type: None,
+            in_monad: false
+        }
     }
 
 
@@ -1069,8 +1069,14 @@ impl Parser {
             _ => ()
         }
 
-        if !var_type.is_compatible_with(&expr_type) {
-            panic!("Mismatch between variable and expression types on line {}, col {}!", expression.start_line, expression.start_index);
+        if !expr_type.is_compatible_with(&var_type) {
+            panic!(
+                "Mismatch between variable type \n{:?} \nand expression type \n{:?} \non line {}, col {}!", 
+                var_type.basic_type, 
+                expr_type.basic_type,
+                expression.start_line, 
+                expression.start_index
+            );
         }
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -1100,29 +1106,28 @@ impl Parser {
         };
 
         // check if there is a generic component
-        let generics: Vec<Type> = match self.tokens.get(0).unwrap().token_type {
+        match self.tokens.get(0).unwrap().token_type {
             TokenType::LeftArrow => {
                 self.tokens.pop_front().unwrap();
 
-                let mut generic_types: Vec<Type> = vec![];
-                while let Ok(t) = self.parse_type() {
-                    generic_types.push(t);
+                let t = self.parse_type()?;
+                
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, RightArrow);
 
-                    let next_token = self.tokens.pop_front().unwrap();
-                    match next_token.token_type {
-                        TokenType::Comma => continue,
-                        TokenType::RightArrow => break,
-                        other => panic!("Expected , or >, got {:?}", other)
-                    }
+                match basic_type.as_str() {
+                    "IO" => return match &t.basic_type {
+                        SimpleType::Void => Ok(Type::from_basic(SimpleType::IOMonad(Box::new(t), None))),
+                        _ => Ok(Type::from_basic(SimpleType::IOMonad(Box::new(t.clone()), Some(Box::new(t)))))
+                    },
+                    _ => panic!()
                 }
-
-                generic_types
             }
 
-            _ => vec![] // no generic
+            _ => () // no generic
         };
 
-        let mut final_type: Type = Type::new_str(basic_type, false, generics, &self.current_symbol_table.borrow())?;
+        let mut final_type: Type = Type::new_str(basic_type, false, vec![], &self.current_symbol_table.borrow())?;
 
         loop {
             let next_token = self.tokens.get(0).unwrap();
@@ -1206,15 +1211,12 @@ impl Parser {
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenParen);
-
-        let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
+        let call = self.parse_function_call(id, line_num, col_num);
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, Semicolon);
-        
-        let expr = SyntaxTree::new(SyntaxNode::FunctionCallStmt(id, arguments), line_num, col_num);
-        get_expr_type(&expr, &self.current_symbol_table.borrow()).unwrap();
-        return Ok(expr);
+
+        call
     }
 
 
@@ -1226,7 +1228,7 @@ impl Parser {
         let expr_type: Type = get_expr_type(&expr, &self.current_symbol_table.borrow())?;
         // check that the returned value is type-compatible with the return type of the function
         match &self.current_return_type {
-            Some(t) => if !expr_type.is_compatible_with(&t) {
+            Some(t) => if !self.in_monad && !expr_type.is_compatible_with(&t) {
                 return Err(Box::new(ParsingError::ReturnTypeMismatch(expr_type, t.clone(), line_num, col_num)))
             }
 
@@ -1626,13 +1628,10 @@ impl Parser {
                     TokenType::Identifier(id) => {
                         match following_token.token_type {
                             TokenType::OpenParen => {
-                                self.tokens.pop_front();
-                                SyntaxTree::new(
-                                    SyntaxNode::FunctionCall(id, self.parse_func_args()?), 
-                                    next_token.line_number, 
-                                    next_token.col_number
-                                )
+                                self.tokens.pop_front().unwrap();
+                                self.parse_function_call(id, next_token.line_number, next_token.col_number)?
                             }
+
                             _ => SyntaxTree::new(
                                 SyntaxNode::Identifier(id), 
                                 next_token.line_number, 
@@ -1697,11 +1696,7 @@ impl Parser {
 
                 let func_call_paren = self.tokens.pop_front().unwrap();
                 match func_call_paren.token_type {
-                    TokenType::OpenParen => { // function call
-                        let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
-                        return Ok(SyntaxTree::new(SyntaxNode::FunctionCall(id, arguments), func_call_paren.line_number, func_call_paren.col_number));
-                    }
-
+                    TokenType::OpenParen => self.parse_function_call(id, func_call_paren.line_number, func_call_paren.col_number),
                     TokenType::OpenCurly => { // struct instantiation
                         let members = self.parse_struct_instantiation_members(&id)?;
                         return Ok(SyntaxTree::new(SyntaxNode::StructInstantiation(id, members), next_token.line_number, next_token.col_number))
@@ -1718,6 +1713,25 @@ impl Parser {
             TokenType::OpenSquare => self.parse_array_literal(next_token.line_number, next_token.col_number),
             _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Expression)))
         }
+    }
+
+
+    /// Parses a function call and its arguments, will return an error if a monad is returned from 
+    /// outside a monadic context
+    fn parse_function_call(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
+        let return_type = self.current_symbol_table.borrow().get(&id).unwrap();
+
+        match return_type.get_type().basic_type {
+            SimpleType::IOMonad(_, _) => {
+                if !self.in_monad {
+                    panic!("Use of monad outside monadic context!");
+                }
+
+                Ok(SyntaxTree::new(SyntaxNode::FunctionCall(id, arguments), line_num, col_num))
+            },
+            _ => Ok(SyntaxTree::new(SyntaxNode::FunctionCall(id, arguments), line_num, col_num))
+        } 
     }
 
 
@@ -1811,6 +1825,16 @@ impl Parser {
     }
 
 
+    fn parse_identifier(&mut self) -> Result<String, Box<dyn Error>> {
+        let next_token = self.tokens.pop_front().unwrap();
+        if let TokenType::Identifier(id) = next_token.token_type {
+            return Ok(id)
+        }
+
+        Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+    }
+
+
     /// Produces a monadic action such as `IO<()>` or `IO<str>`.
     /// 
     /// The value contained within a monad cannot be extracted from a monad outside of another
@@ -1818,16 +1842,60 @@ impl Parser {
     /// writing from standard I/O, are properly ordered and are not parallelized, causing problems
     /// with out-of-order effects - this is why monads are never parallelized.
     fn parse_do_block(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+        self.in_monad = true;
+
+        let param: Option<(String, Type)> = self.parse_do_block_param()?;
         let next_token = self.tokens.pop_front().unwrap();
         let (line, col) = (next_token.line_number, next_token.col_number);
         assert_token_type!(next_token, OpenCurly);
 
-        let body = self.parse_stmt_block(vec![])?;
+        let body = match &param {
+            Some(p) => self.parse_stmt_block(vec![Symbol::new(SymbolType::Variable(p.0.clone(), p.1.clone()), false, 0, 0)])?,
+            None => self.parse_stmt_block(vec![])?
+        };
+
+        // get the return type of the monad, which defaults to IO<void>, if the return type is a
+        // monad, flatten the Monad<Monad<T>> to Monad<T>
+        let default = Type::from_basic(SimpleType::IOMonad(Box::new(Type::from_basic(SimpleType::Void)), None));
+        let return_type = get_monad_return_type(&body, &self.current_symbol_table.borrow()).unwrap_or(default);
+        let return_type = match &return_type.basic_type {
+            SimpleType::IOMonad(rt, _) => *rt.to_owned(),
+            _ => return_type
+        };
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, CloseCurly);
 
-        Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(Box::new(body)), line, col))
+        self.in_monad = false;
+        Ok(SyntaxTree::new(SyntaxNode::MonadicExpr(Box::new(body), param, return_type), line, col))
+    }
+
+
+    fn parse_do_block_param(&mut self) -> Result<Option<(String, Type)>, Box<dyn Error>> {
+        match self.tokens.front().unwrap().token_type {
+            TokenType::OpenParen => {
+                self.tokens.pop_front().unwrap();
+                let identifier = match self.tokens.get(0).unwrap().token_type {
+                    TokenType::CloseParen => {
+                        self.tokens.pop_front().unwrap();
+                        return Ok(None)
+                    },
+                    TokenType::Identifier(_) => Some(self.parse_identifier()?),
+                    _ => panic!()
+                };
+
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, Colon);
+
+                let t = self.parse_type()?;
+
+                let next_token = self.tokens.pop_front().unwrap();
+                assert_token_type!(next_token, CloseParen);
+
+                Ok(Some((identifier.unwrap(), t)))
+            }
+            _ => Ok(None)
+        }
     }
 
 
@@ -2090,6 +2158,24 @@ mod tests {
     #[should_panic]
     fn test_incorrect_return_type() {
         let scanner = Scanner::new("tests/test_incorrect_return_type.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_io_outside_monad() {
+        let scanner = Scanner::new("tests/test_io_outside_monad.skj").unwrap();
+        let mut parser = Parser::new(scanner.tokens);
+        parser.parse().unwrap();
+    }
+
+
+    #[test]
+    #[should_panic]
+    fn test_io_outside_monad_expr() {
+        let scanner = Scanner::new("tests/test_io_outside_monad_expr.skj").unwrap();
         let mut parser = Parser::new(scanner.tokens);
         parser.parse().unwrap();
     }
