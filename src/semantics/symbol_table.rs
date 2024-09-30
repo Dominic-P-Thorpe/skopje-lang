@@ -133,13 +133,25 @@ impl Symbol {
     pub fn get_type(&self) -> Type {
         self.category.get_type()
     }
+
+
+    /// Returns the name of this symbol
+    #[allow(unused)]
+    pub fn get_name(&self) -> String {
+        match &self.category {
+            SymbolType::EnumeraionType(name, _, _)
+            | SymbolType::Function(name, _)
+            | SymbolType::StructType(name, _)
+            | SymbolType::Variable(name, _) => name.clone()
+        }
+    } 
 }
 
 
 /// A struct representing a symbol table, which can store and retrieve symbols, and supports a 
 /// hierarchical structure with parent and child symbol tables which represents the heirarchy of
 /// scope within the program.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SymbolTable {
     /// A hash map storing symbols by their names.
     table: HashMap<String, Symbol>,

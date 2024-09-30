@@ -670,7 +670,7 @@ mod tests {
     #[test]
     fn test_basic_integer_checking() {
         let scanner = Scanner::new("tests/should_pass/test_basic_integer_checking.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -678,7 +678,7 @@ mod tests {
     #[test]
     fn test_tuples() {
         let scanner = Scanner::new("tests/should_pass/test_tuples.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn test_basic_array() {
         let scanner = Scanner::new("tests/should_pass/test_basic_array.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -694,7 +694,7 @@ mod tests {
     #[test]
     fn test_multidimensional_array() {
         let scanner = Scanner::new("tests/should_pass/test_multidimensional_array.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -702,7 +702,7 @@ mod tests {
     #[test]
     fn test_basic_enum() {
         let scanner = Scanner::new("tests/should_pass/test_basic_enum.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -711,7 +711,7 @@ mod tests {
     #[should_panic]
     fn test_malformed_tuple() {
         let scanner = Scanner::new("tests/should_fail/test_malformed_tuple.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -720,7 +720,7 @@ mod tests {
     #[should_panic]
     fn test_non_constexpr_tuple_index() {
         let scanner = Scanner::new("tests/should_fail/test_non_constexpr_tuple_index.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -729,7 +729,7 @@ mod tests {
     #[should_panic]
     fn test_heterogenous_array() {
         let scanner = Scanner::new("tests/should_fail/test_heterogenous_array.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -738,7 +738,7 @@ mod tests {
     #[should_panic]
     fn test_ill_typed_array() {
         let scanner = Scanner::new("tests/should_fail/test_ill_typed_array.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -747,7 +747,7 @@ mod tests {
     #[should_panic]
     fn test_for_loop_no_array() {
         let scanner = Scanner::new("tests/should_fail/test_for_loop_no_array.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -756,7 +756,7 @@ mod tests {
     #[should_panic]
     fn test_for_loop_inconsistent_iter_type() {
         let scanner = Scanner::new("tests/should_fail/test_for_loop_inconsistent_iter_type.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -765,7 +765,7 @@ mod tests {
     #[should_panic]
     fn test_enum_without_variant() {
         let scanner = Scanner::new("tests/should_fail/test_enum_without_variant.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 }

@@ -1,5 +1,7 @@
 use std::{fmt, error};
 
+use crate::SyntaxTree;
+
 use super::{token::{Token, TokenType}, types::Type};
 
 
@@ -63,7 +65,8 @@ pub enum ParsingError {
     UnexpectedToken(Token, ExpectedToken),
     MissingSemicolon(usize),
     InvalidTypeName(String),
-    ReturnTypeMismatch(Type, Type, usize, usize)
+    ReturnTypeMismatch(Type, Type, usize, usize),
+    EarlyReturn(SyntaxTree)
 }
 
 
@@ -75,7 +78,8 @@ impl fmt::Display for ParsingError {
             Self::MissingSemicolon(line) => write!(f, "Missing semicolon on line {}", line),
             Self::InvalidTypeName(name) => write!(f, "{} is not a valid type name", name),
             Self::ReturnTypeMismatch(got, expected, line, col) => 
-                write!(f, "Type mismatch at line {}, col {}, expected {:?}, got {:?}", line, col, expected.basic_type, got.basic_type)
+                write!(f, "Type mismatch at line {}, col {}, expected {:?}, got {:?}", line, col, expected.basic_type, got.basic_type),
+            Self::EarlyReturn(_) => write!(f, "Unexpected EOF encountered!")
         }
     }
 }
