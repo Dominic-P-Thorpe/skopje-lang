@@ -1691,7 +1691,8 @@ impl Parser {
     }
 
 
-    /// Parses a factor, which is a literal, function invocation, or parenthesized expression.
+    /// Parses a factor, which is a literal, struct, function invocation, or parenthesized 
+    /// expression.
     fn parse_factor(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
@@ -1701,32 +1702,38 @@ impl Parser {
             TokenType::BoolLiteral(b) => Ok(SyntaxTree::new(SyntaxNode::BoolLiteral(b), next_token.line_number, next_token.col_number)),
             TokenType::SelfKeyword => Ok(SyntaxTree::new(SyntaxNode::SelfIdentifier, next_token.line_number, next_token.col_number)),
             TokenType::DoKeyword => self.parse_do_block(),
-
-            TokenType::Identifier(id) => {
-                // check that the identifier is valid in this context
-                match self.current_symbol_table.borrow().get(&id) {
-                    Some(_) => (),
-                    None => panic!("Semantic error: The identifier {} could not be found on line {}, col {}!", id, next_token.line_number, next_token.col_number)
-                }
-
-                let func_call_paren = self.tokens.pop_front().unwrap();
-                match func_call_paren.token_type {
-                    TokenType::OpenParen => self.parse_function_call(id, func_call_paren.line_number, func_call_paren.col_number),
-                    TokenType::OpenCurly => { // struct instantiation
-                        let members = self.parse_struct_instantiation_members(&id)?;
-                        return Ok(SyntaxTree::new(SyntaxNode::StructInstantiation(id, members), next_token.line_number, next_token.col_number))
-                    } 
-
-                    _ => {
-                        self.tokens.push_front(func_call_paren);
-                        return Ok(SyntaxTree::new(SyntaxNode::Identifier(id), next_token.line_number, next_token.col_number));
-                    }
-                }
-            }
-
+            TokenType::Identifier(id) => self.parse_identifier_factor(id, next_token.line_number, next_token.col_number),
             TokenType::OpenParen => self.parse_tuple_or_paren_expr(),
             TokenType::OpenSquare => self.parse_array_literal(next_token.line_number, next_token.col_number),
             _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Expression)))
+        }
+    }
+
+
+    /// If there is an identifier in a factor which has already been parsed, check if it is a 
+    /// regular identifier or if it is part of a function call or struct instantiation, in which 
+    /// case parse those.
+    fn parse_identifier_factor(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+        // check that the identifier is valid in this context
+        match self.current_symbol_table.borrow().get(&id) {
+            Some(_) => (),
+            None => panic!("Semantic error: The identifier {} could not be found on line {}, col {}!", id, line_num, col_num)
+        }
+
+        // peek at the next token, but don't pop it yet
+        let peek_next_token = self.tokens.pop_front().unwrap();
+        match peek_next_token.token_type {
+            // function call
+            TokenType::OpenParen => self.parse_function_call(id, peek_next_token.line_number, peek_next_token.col_number),
+            TokenType::OpenCurly => { // struct instantiation
+                let members = self.parse_struct_instantiation_members(&id)?;
+                return Ok(SyntaxTree::new(SyntaxNode::StructInstantiation(id, members), line_num, col_num))
+            } 
+
+            _ => { // regular identifier
+                self.tokens.push_front(peek_next_token);
+                return Ok(SyntaxTree::new(SyntaxNode::Identifier(id), line_num, col_num));
+            }
         }
     }
 
@@ -1749,8 +1756,13 @@ impl Parser {
         } 
     }
 
-
+    /// Parses a struct instantiation where the identifier has already been parsed. This follows 
+    /// this grammar:
+    /// 
+    /// STRUCT_INSTANTIATION ::= "struct" <IDENTIFIER> "{" <STRUCT_MEMBER> "}"
+    /// STRUCT_MEMBER ::= <IDENTIFIER> : <EXPRESSION> "," <STRUCT_MEMBER> | <IDENTIFIER> : <EXPRESSION>
     fn parse_struct_instantiation_members(&mut self, struct_id: &str) -> Result<IndexMap<String, SyntaxTree>, Box<dyn Error>> {
+        // get all the comma-separated members of the struct
         let mut members: IndexMap<String, SyntaxTree> = IndexMap::new();
         loop {
             let next_token = self.tokens.pop_front().unwrap();
@@ -1765,6 +1777,8 @@ impl Parser {
             let expr = self.parse_expression()?;
             members.insert(id, expr);
 
+            // if the next token is a comma, continue, if it is a curly bracket, this is the end 
+            // of the declaration
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
                 TokenType::Comma => continue,
