@@ -16,7 +16,9 @@
 #include <experimental/array>
 #include <algorithm>
 #include <concepts>
+
 #include "monad.h"
+#include "autoparallel.h"
 
 
 /// @brief If the return type of the passed function is a monad, bind the monad, running its 
