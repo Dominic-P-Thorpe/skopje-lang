@@ -208,7 +208,6 @@ impl SimpleType {
 pub struct Type {
     pub basic_type: SimpleType,
     pub monadic: bool,
-    pub dependencies: Vec<()>,
     pub linear: bool,
     pub generics: Vec<Type>
 }
@@ -223,7 +222,6 @@ impl Type {
         };
 
         Ok(Type { 
-            dependencies: vec![], 
             basic_type,
             monadic,
             linear,
@@ -239,7 +237,6 @@ impl Type {
         };
 
         Type {
-            dependencies: vec![], 
             basic_type, 
             monadic, 
             linear, 
@@ -255,7 +252,6 @@ impl Type {
         };
 
         Type {
-            dependencies: vec![], 
             basic_type, 
             monadic, 
             linear: false, 

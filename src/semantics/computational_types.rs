@@ -55,7 +55,7 @@ pub fn calculate_computational_dependencies(expr: &SyntaxTree, symbol_table: &Sy
              .concat(),
         SyntaxNode::MonadicExpr(body, Some((p_id, p_type)), _) => {
             let base_dependencies = calculate_computational_dependencies(&body, symbol_table)?;
-            base_dependencies.iter().filter(|d| &d.get_name() != p_id).cloned().collect()
+            base_dependencies.iter().filter(|d| &d.category.to_string() != p_id).cloned().collect()
         },
         SyntaxNode::MonadicExpr(body, None, _) => 
             calculate_computational_dependencies(&body, symbol_table)?,
@@ -66,7 +66,7 @@ pub fn calculate_computational_dependencies(expr: &SyntaxTree, symbol_table: &Sy
         | SyntaxNode::BreakStmt
         | SyntaxNode::ContinueStmt => vec![],
         SyntaxNode::ForStmt(i, t, expr, body) => vec![
-            vec![Symbol::new(SymbolType::Variable(i.clone(), t.clone()), true, 0, 0)],
+            vec![Symbol::new(SymbolType::Variable(i.clone(), t.clone(), vec![]), true, 0, 0)],
             calculate_computational_dependencies(&expr, symbol_table)?,
             calculate_computational_dependencies(&body, symbol_table)?
         ].concat(),
@@ -85,7 +85,8 @@ pub fn calculate_computational_dependencies(expr: &SyntaxTree, symbol_table: &Sy
         SyntaxNode::SelfIdentifier => vec![
             Symbol::new(super::symbol_table::SymbolType::Variable(
                 "self".to_owned(), 
-                symbol_table.self_ref.as_ref().unwrap().clone()
+                symbol_table.self_ref.as_ref().unwrap().clone(),
+                vec![]
             ), false, 0, 0)
         ],
         SyntaxNode::EnumVariant(_, _)
@@ -110,9 +111,9 @@ mod tests {
 
     fn prepare() -> SymbolTable {
         let mut table = SymbolTable::new(None).borrow().clone();
-        table.insert(Symbol::new(super::SymbolType::Variable("x".to_string(), Type::from_basic(SimpleType::I32)), false, 0, 0));
-        table.insert(Symbol::new(super::SymbolType::Variable("y".to_string(), Type::from_basic(SimpleType::I32)), false, 0, 0));
-        table.insert(Symbol::new(super::SymbolType::Variable("z".to_string(), Type::from_basic(SimpleType::I32)), false, 0, 0));
+        table.insert(Symbol::new(super::SymbolType::Variable("x".to_string(), Type::from_basic(SimpleType::I32), vec![]), false, 0, 0));
+        table.insert(Symbol::new(super::SymbolType::Variable("y".to_string(), Type::from_basic(SimpleType::I32), vec![]), false, 0, 0));
+        table.insert(Symbol::new(super::SymbolType::Variable("z".to_string(), Type::from_basic(SimpleType::I32), vec![]), false, 0, 0));
         table.insert(Symbol::new(super::SymbolType::Function("foo".to_string(), Type::from_basic(
             SimpleType::Function(
                 Box::new(Type::from_basic(SimpleType::I32)),
@@ -144,7 +145,7 @@ mod tests {
         let dependencies = calculate_computational_dependencies(&tree, &symbol_table)
                                                             .unwrap()
                                                             .into_iter()
-                                                            .map(|d| d.get_name())
+                                                            .map(|d| d.category.to_string())
                                                             .collect::<Vec<String>>();
         assert!(dependencies.contains(&"x".to_string()));
     }
@@ -160,7 +161,7 @@ mod tests {
         let dependencies = calculate_computational_dependencies(&tree, &symbol_table)
                                                             .unwrap()
                                                             .into_iter()
-                                                            .map(|d| d.get_name())
+                                                            .map(|d| d.category.to_string())
                                                             .collect::<Vec<String>>();
         assert!(dependencies.contains(&"x".to_string()));
         assert!(dependencies.contains(&"y".to_string()));
@@ -178,7 +179,7 @@ mod tests {
         let dependencies = calculate_computational_dependencies(&tree, &symbol_table)
                                                             .unwrap()
                                                             .into_iter()
-                                                            .map(|d| d.get_name())
+                                                            .map(|d| d.category.to_string())
                                                             .collect::<Vec<String>>();
         assert!(!dependencies.contains(&"x".to_string()));
         assert!(dependencies.contains(&"y".to_string()));
@@ -202,7 +203,7 @@ mod tests {
         let dependencies = calculate_computational_dependencies(&tree, &symbol_table)
                                                             .unwrap()
                                                             .into_iter()
-                                                            .map(|d| d.get_name())
+                                                            .map(|d| d.category.to_string())
                                                             .collect::<Vec<String>>();
         assert!(dependencies.contains(&"x".to_string()));
         assert!(dependencies.contains(&"y".to_string()));
@@ -221,7 +222,7 @@ mod tests {
         let dependencies = calculate_computational_dependencies(&tree, &symbol_table)
                                                             .unwrap()
                                                             .into_iter()
-                                                            .map(|d| d.get_name())
+                                                            .map(|d| d.category.to_string())
                                                             .collect::<Vec<String>>();
         assert!(dependencies.contains(&"x".to_string()));
         assert!(dependencies.contains(&"y".to_string()));
