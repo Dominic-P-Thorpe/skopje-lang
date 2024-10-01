@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
-use std::error::Error;
 use std::rc::Rc;
 
 use indexmap::IndexMap;
 use rand::distributions::{Alphanumeric, DistString};
 
+use crate::semantics::computational_types::calculate_computational_dependencies;
 use crate::semantics::symbol_table::{Symbol, SymbolTable, SymbolType};
 use crate::semantics::typechecking::*;
 
@@ -20,11 +20,22 @@ macro_rules! parse_binary_operator {
         let (root_line, root_col) = (root.start_line, root.start_index);
 
         loop {
-            let next_token = $self.tokens.pop_front().unwrap();
+            let next_token = match $self.tokens.pop_front() {
+                Some(token) => token,
+                None => return Err(ParsingError::EarlyReturn(root))
+            };
+
             match next_token.token_type {
                 $(
                     TokenType::$op_type => {
-                        let right: SyntaxTree = $self.$next()?;
+                        let right: SyntaxTree = match $self.$next() {
+                            Err(e) => match e {
+                                ParsingError::EarlyReturn(t) => t,   
+                                e => return Err(e)
+                            },
+                            Ok(t) => t
+                        };
+
                         root = SyntaxTree::new(SyntaxNode::BinaryOperation(
                             $op_str.to_owned(),
                             Box::new(root),
@@ -50,9 +61,7 @@ macro_rules! assert_token_type {
     ($token:ident, $token_type:ident) => {
         match $token.token_type {
             TokenType::$token_type => (),
-            _ => return Err(Box::new(
-                ParsingError::UnexpectedToken($token, ExpectedToken::$token_type)
-            ))
+            _ => return Err(ParsingError::UnexpectedToken($token, ExpectedToken::$token_type))
         }
     };
 }
@@ -169,7 +178,7 @@ impl SyntaxTree {
 /// of the queue and organized into the AST.
 pub struct Parser {
     tokens: VecDeque<Token>,
-    current_return_type: Option<Type>,
+    pub current_return_type: Option<Type>,
     symbol_table_root: Rc<RefCell<SymbolTable>>,
     current_symbol_table: Rc<RefCell<SymbolTable>>,
     auxilliary_var_index: usize,
@@ -180,8 +189,8 @@ pub struct Parser {
 impl Parser {
     /// Creates a [`VecDeque`] of tokens which can be used as a FIFO queue data structure in the
     /// [`Parser`] struct.  
-    pub fn new(tokens: Vec<Token>) -> Self {
-        let symbol_table_root = SymbolTable::new(None);
+    pub fn new(tokens: Vec<Token>, symbol_table: Option<Rc<RefCell<SymbolTable>>>) -> Self {
+        let symbol_table_root = symbol_table.unwrap_or(SymbolTable::new(None));
         Parser { 
             tokens: VecDeque::from(tokens),
             symbol_table_root: symbol_table_root.clone(),
@@ -193,7 +202,7 @@ impl Parser {
     }
 
 
-    pub fn parse(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    pub fn parse(&mut self) -> Result<SyntaxTree, ParsingError> {
         let mut top_level_constructs: Vec<SyntaxTree> = vec![];
         while let Some(next_token) = self.tokens.pop_front() {
             match &next_token.token_type {
@@ -260,12 +269,12 @@ impl Parser {
     ///
     /// * Returns an error if an unexpected token is encountered, such as when the expected 
     ///   identifier, open curly brace, comma, or closing curly brace is missing.
-    fn parse_struct(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_struct(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         // get the identifier of the struct
         let id_token = self.tokens.pop_front().unwrap();
         let name: String = match id_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(id_token, ExpectedToken::Identifier)))
+            _ => return Err(ParsingError::UnexpectedToken(id_token, ExpectedToken::Identifier))
         };
 
         // ensure the identifier is followed by a {
@@ -283,7 +292,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Comma => (), // there are more members
                 TokenType::CloseCurly => break, // this is the end of the declaration
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly))
             }
 
             // get the new member
@@ -327,7 +336,7 @@ impl Parser {
     }
 
 
-    fn parse_methods(&mut self) -> Result<HashMap<String, SyntaxTree>, Box<dyn Error>> {
+    fn parse_methods(&mut self) -> Result<HashMap<String, SyntaxTree>, ParsingError> {
         let mut methods: HashMap<String, SyntaxTree> = HashMap::new();
 
         let next_token: Token = self.tokens.pop_front().unwrap();
@@ -338,7 +347,7 @@ impl Parser {
             let next_function = match next_token.token_type {
                 TokenType::FnKeyword => self.parse_function(next_token.line_number, next_token.col_number)?,
                 TokenType::CloseCurly => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly))
             };
 
             match &next_function.node {
@@ -373,12 +382,12 @@ impl Parser {
     ///
     /// * Returns an error if an unexpected token is encountered, such as when the expected 
     ///   identifier or colon is missing.
-    fn parse_struct_member(&mut self) -> Result<(String, Type), Box<dyn Error>> {
+    fn parse_struct_member(&mut self) -> Result<(String, Type), ParsingError> {
         // get the identifier of this member
         let id_token = self.tokens.pop_front().unwrap();
         let name: String = match id_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(id_token, ExpectedToken::Identifier)))
+            _ => return Err(ParsingError::UnexpectedToken(id_token, ExpectedToken::Identifier))
         };
 
         // ensure the next token is a :
@@ -414,7 +423,7 @@ impl Parser {
     ///     }
     /// }
     /// ```
-    fn parse_function(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_function(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let id_token = self.tokens.pop_front().unwrap();
         if let TokenType::Identifier(id) = id_token.token_type {
             let open_paren = self.tokens.pop_front().unwrap();
@@ -446,11 +455,11 @@ impl Parser {
             ));
         }
 
-        Err(Box::new(ParsingError::UnexpectedToken(id_token, super::errors::ExpectedToken::Identifier)))
+        Err(ParsingError::UnexpectedToken(id_token, super::errors::ExpectedToken::Identifier))
     }
 
 
-    fn parse_func_params(&mut self) -> Result<Vec<(String, Type)>, Box<dyn Error>> {
+    fn parse_func_params(&mut self) -> Result<Vec<(String, Type)>, ParsingError> {
         let mut params: Vec<(String, Type)> = vec![];
         let next_token = self.tokens.pop_front().unwrap();
         // return an empty vec if there are no parameters
@@ -468,26 +477,26 @@ impl Parser {
             let (p_id, p_line, p_col) = if let TokenType::Identifier(id) = next_token.token_type {
                 (id, next_token.line_number, next_token.col_number)
             } else {
-                return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)));
+                return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier));
             };
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
                 TokenType::Colon => (),
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Colon)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Colon))
             }
 
             // TODO: make this work with all param types
             let p_type: Type = self.parse_type().unwrap();
 
             params.push((p_id.clone(), p_type.clone()));
-            self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(p_id, p_type), false, p_line, p_col));
+            self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(p_id, p_type, vec![]), false, p_line, p_col));
 
             let next_token = self.tokens.pop_front().unwrap();
             match next_token.token_type {
                 TokenType::CloseParen => break,
                 TokenType::Comma => continue,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen))
             }
         }
 
@@ -504,7 +513,7 @@ impl Parser {
     ///  - variable declarations and reassignments
     ///  - expressions
     ///  - if-else statements
-    fn parse_stmt_block(&mut self, new_symbols: Vec<Symbol>) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_stmt_block(&mut self, new_symbols: Vec<Symbol>) -> Result<SyntaxTree, ParsingError> {
         self.current_symbol_table = SymbolTable::add_child(&self.current_symbol_table);
         for symbol in new_symbols {
             self.current_symbol_table.borrow_mut().insert(symbol);
@@ -534,7 +543,7 @@ impl Parser {
     }
 
 
-    fn parse_statement(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_statement(&mut self) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::ReturnKeyword => self.parse_return(next_token.line_number, next_token.col_number),
@@ -554,21 +563,21 @@ impl Parser {
                 assert_token_type!(next_token, Semicolon);
                 Ok(SyntaxTree::new(SyntaxNode::BreakStmt, next_token.line_number, next_token.col_number))
             }
-            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Statement)))
+            _ => Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Statement))
         }
     }
 
 
-    fn parse_match_stmt(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_match_stmt(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         // let match_expr = self.parse_expression()?;
         let next_token = self.tokens.pop_front().unwrap();
         let match_expr = match next_token.token_type {
             TokenType::Identifier(id) => SyntaxTree::new(SyntaxNode::Identifier(id), next_token.line_number, next_token.col_number),
             TokenType::SelfKeyword => SyntaxTree::new(SyntaxNode::SelfIdentifier, next_token.line_number, next_token.col_number),
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+            _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
         };
 
-        let match_expr_type = get_expr_type(&match_expr, &self.current_symbol_table.borrow())?;
+        let match_expr_type = get_expr_type(&match_expr, &self.current_symbol_table.borrow()).unwrap();
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenCurly);
@@ -584,7 +593,7 @@ impl Parser {
     }
 
 
-    fn parse_match_patterns(&mut self, match_expr_type: &Type) -> Result<Vec<(Pattern, SyntaxTree)>, Box<dyn Error>> {
+    fn parse_match_patterns(&mut self, match_expr_type: &Type) -> Result<Vec<(Pattern, SyntaxTree)>, ParsingError> {
         let mut patterns: Vec<(Pattern, SyntaxTree)> = vec![];
         loop {
             let next_token = self.tokens.front().unwrap();
@@ -609,7 +618,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseCurly => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly))
             }
         }
 
@@ -617,7 +626,7 @@ impl Parser {
     }
 
 
-    fn get_sub_patterns(&mut self) -> Result<Vec<Pattern>, Box<dyn Error>> {
+    fn get_sub_patterns(&mut self) -> Result<Vec<Pattern>, ParsingError> {
         let mut sub_patterns: Vec<Pattern> = vec![];
         loop {
             sub_patterns.push(self.parse_match_pattern()?);
@@ -625,7 +634,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Pipe => continue,
                 TokenType::ThickArrow => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token.clone(), ExpectedToken::ThickArrow)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token.clone(), ExpectedToken::ThickArrow))
             }
         }
 
@@ -639,7 +648,7 @@ impl Parser {
         match_expr_type: &Type, 
         line_num: usize, 
         col_num: usize
-    ) -> Result<Vec<Symbol>, Box<dyn Error>> {
+    ) -> Result<Vec<Symbol>, ParsingError> {
         if patterns.len() == 0 {
             return Ok(vec![]);
         }
@@ -669,7 +678,7 @@ impl Parser {
             }
 
             Pattern::IdentifierPattern(id) => 
-                vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone()), false, line_num, col_num)],
+                vec![Symbol::new(SymbolType::Variable(id.to_owned(), match_expr_type.clone(), vec![]), false, line_num, col_num)],
             
             Pattern::TuplePattern(_, patterns) => {
                 let mut new_symbols: Vec<Symbol> = vec![];
@@ -682,7 +691,7 @@ impl Parser {
 
                     match pattern {
                         Pattern::IdentifierPattern(id) => 
-                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), false, line_num, col_num)),
+                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone(), vec![]), false, line_num, col_num)),
                         _ => ()
                     }
                 }
@@ -696,7 +705,7 @@ impl Parser {
                 for pattern in patterns {
                     match pattern {
                         Pattern::IdentifierPattern(id) => 
-                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), false, line_num, col_num)),
+                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone(), vec![]), false, line_num, col_num)),
                         _ => ()
                     }
                 }
@@ -705,7 +714,7 @@ impl Parser {
                     None => (),
                     Some(p) => match p {
                         Pattern::IdentifierPattern(id) => 
-                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone()), false, line_num, col_num)),
+                            new_symbols.push(Symbol::new(SymbolType::Variable(id.to_string(), member_type.clone(), vec![]), false, line_num, col_num)),
                         _ => ()
                     }
                 }
@@ -748,7 +757,7 @@ impl Parser {
 
                     let param_type = variant_data_params.get_index(i).unwrap().1;
                     result.push(Symbol::new(
-                        SymbolType::Variable(param_name.to_string(), param_type.clone()), 
+                        SymbolType::Variable(param_name.to_string(), param_type.clone(), vec![]), 
                         false, line_num, col_num)
                     );
                 }
@@ -761,7 +770,7 @@ impl Parser {
     }
 
 
-    fn parse_match_pattern(&mut self) -> Result<Pattern, Box<dyn Error>> {
+    fn parse_match_pattern(&mut self) -> Result<Pattern, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::Identifier(enum_name) => self.parse_identifier_or_enum_pattern(enum_name),
@@ -778,17 +787,17 @@ impl Parser {
     }
 
 
-    fn parse_leq_range_pattern(&mut self) -> Result<Pattern, Box<dyn Error>> {
+    fn parse_leq_range_pattern(&mut self) -> Result<Pattern, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         let pattern_id = self.generate_random_variable();
         match next_token.token_type {
-            TokenType::IntLiteral(literal) => Ok(Pattern::LessThanEqRangePattern(pattern_id, literal.try_into()?)),
-            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Literal)))
+            TokenType::IntLiteral(literal) => Ok(Pattern::LessThanEqRangePattern(pattern_id, literal.try_into().unwrap())),
+            _ => Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Literal))
         }
     }
 
 
-    fn parse_int_range_pattern(&mut self, literal: i64) -> Result<Pattern, Box<dyn Error>> {
+    fn parse_int_range_pattern(&mut self, literal: i64) -> Result<Pattern, ParsingError> {
         let pattern_id = self.generate_random_variable();
         let next_token = self.tokens.front().unwrap();
         match next_token.token_type {
@@ -808,7 +817,7 @@ impl Parser {
     }
 
 
-    fn parse_array_pattern(&mut self) -> Result<Pattern, Box<dyn Error>> {
+    fn parse_array_pattern(&mut self) -> Result<Pattern, ParsingError> {
         // return an empty array pattern if the list of subpatterns is empty
         if let TokenType::CloseSquare = self.tokens.front().unwrap().token_type {
             self.tokens.pop_front().unwrap();
@@ -823,7 +832,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Colon => (),
                 TokenType::CloseSquare => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare))
             }
         }
 
@@ -845,7 +854,7 @@ impl Parser {
     }
 
 
-    fn parse_tuple_pattern(&mut self) -> Result<Pattern, Box<dyn Error>> {
+    fn parse_tuple_pattern(&mut self) -> Result<Pattern, ParsingError> {
         let mut patterns: Vec<Pattern> = vec![];
         loop {
             patterns.push(self.parse_match_pattern()?);
@@ -853,7 +862,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseParen => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen))
             }
         }
 
@@ -861,7 +870,7 @@ impl Parser {
     }
 
 
-    fn parse_identifier_or_enum_pattern(&mut self, enum_name: String) -> Result<Pattern, Box<dyn Error>> {
+    fn parse_identifier_or_enum_pattern(&mut self, enum_name: String) -> Result<Pattern, ParsingError> {
         let next_token = self.tokens.front().unwrap();
         
         // check if this is an identifier pattern or an identifier pattern
@@ -880,12 +889,12 @@ impl Parser {
         match self.tokens.front().unwrap().token_type {
             TokenType::ThickArrow => Ok(Pattern::EnumPattern(enum_name, variant_name, vec![])),
             TokenType::OpenParen => Ok(Pattern::EnumPattern(enum_name, variant_name, self.parse_enum_pattern_data_params()?)),
-            _ => Err(Box::new(ParsingError::UnexpectedToken(self.tokens.front().unwrap().clone(), ExpectedToken::ThickArrow)))
+            _ => Err(ParsingError::UnexpectedToken(self.tokens.front().unwrap().clone(), ExpectedToken::ThickArrow))
         }
     }
 
 
-    fn parse_enum_pattern_data_params(&mut self) -> Result<Vec<Pattern>, Box<dyn Error>> {
+    fn parse_enum_pattern_data_params(&mut self) -> Result<Vec<Pattern>, ParsingError> {
         let mut data_params: Vec<Pattern> = vec![];
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenParen);
@@ -896,7 +905,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseParen => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen))
             }
         }
 
@@ -907,7 +916,7 @@ impl Parser {
     /// Parses a for loop which should conform to the EBNF:
     /// 
     /// `FOR_LOOP ::= "for" "(" <IDENTIFIER> ":" <TYPE> "in" <EXPRESSION> ")" "{" <BODY> "}"`
-    fn parse_for_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_for_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenParen);
 
@@ -915,7 +924,7 @@ impl Parser {
         let (iterator_line, iterator_col) = (next_token.line_number, next_token.col_number);
         let iterator_id: String = match next_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+            _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
         };
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -938,7 +947,7 @@ impl Parser {
         assert_token_type!(next_token, OpenCurly);
 
         let iterator_symbol = Symbol::new(
-            SymbolType::Variable(iterator_id.clone(), iterator_type.clone()), 
+            SymbolType::Variable(iterator_id.clone(), iterator_type.clone(), vec![]), 
             false, iterator_line, iterator_col
         );
         let body = self.parse_stmt_block(vec![iterator_symbol])?;
@@ -950,7 +959,7 @@ impl Parser {
     }
 
 
-    fn parse_func_call_or_reassignment_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_func_call_or_reassignment_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.get(0).unwrap();
         match &next_token.token_type {
             TokenType::OpenParen => self.parse_func_call_stmt(id, line_num, col_num),
@@ -961,7 +970,7 @@ impl Parser {
     }
 
 
-    fn parse_reassignment(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_reassignment(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         // ensure that the current symbol both exists and is mutable
         match self.current_symbol_table.borrow().get(&id) {
             Some(symbol) => {
@@ -988,7 +997,7 @@ impl Parser {
     }
 
 
-    fn parse_lhs(&mut self, root: SyntaxTree, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_lhs(&mut self, root: SyntaxTree, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::Equal => Ok(root),
@@ -1012,7 +1021,7 @@ impl Parser {
                         next_token.line_number, 
                         next_token.col_number
                     ),
-                    _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+                    _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
                 };
 
                 self.parse_lhs(SyntaxTree::new(SyntaxNode::BinaryOperation(
@@ -1030,7 +1039,7 @@ impl Parser {
     /// Parses a let statement
     /// 
     /// Let statements have the form: `"let" <identifier> ":" <type> "=" <expression> ";"`.
-    fn parse_let_statement(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_let_statement(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let is_mutable = match self.tokens.front().unwrap().token_type {
             TokenType::MutKeyword => {
                 self.tokens.pop_front();
@@ -1048,17 +1057,17 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         let id: String = match next_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+            _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
         };
 
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, Colon);
 
         let var_type = self.parse_type().unwrap();
-
+        
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, Equal);
-
+        
         let expression: SyntaxTree = self.parse_expression()?;
         let expr_type: Type = get_expr_type(&expression, &self.current_symbol_table.borrow()).unwrap();
 
@@ -1082,7 +1091,8 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, Semicolon);
 
-        self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(id.clone(), var_type.clone()), is_mutable, line_num, col_num));
+        let dependencies = calculate_computational_dependencies(&expression, &self.current_symbol_table.borrow()).unwrap();
+        self.current_symbol_table.borrow_mut().insert(Symbol::new(SymbolType::Variable(id.clone(), var_type.clone(), dependencies), is_mutable, line_num, col_num));
         Ok(SyntaxTree::new(SyntaxNode::LetStmt(id, var_type, Box::new(expression)), line_num, col_num))
     }
 
@@ -1097,12 +1107,12 @@ impl Parser {
     ///  - enums,
     ///  - tuples,
     ///  - generics
-    fn parse_type(&mut self) -> Result<Type, Box<dyn Error>> {
+    fn parse_type(&mut self) -> Result<Type, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         let basic_type = match next_token.token_type {
             TokenType::Identifier(id) => id,
             TokenType::OpenParen => return self.parse_tuple_type(),
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+            _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
         };
 
         // check if there is a generic component
@@ -1127,7 +1137,7 @@ impl Parser {
             _ => () // no generic
         };
 
-        let mut final_type: Type = Type::new_str(basic_type, false, vec![], &self.current_symbol_table.borrow())?;
+        let mut final_type: Type = Type::new_str(basic_type, false, vec![], &self.current_symbol_table.borrow()).unwrap();
 
         loop {
             let next_token = self.tokens.get(0).unwrap();
@@ -1146,7 +1156,7 @@ impl Parser {
                     if let TokenType::CloseSquare = next_token.token_type {
                         final_type = Type::new(SimpleType::Array(Box::new(final_type), size), false, vec![]);
                     } else {
-                        return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare)));
+                        return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare));
                     }
                 },
                 _ => break
@@ -1158,7 +1168,7 @@ impl Parser {
 
 
     /// Parses a tuple type, which is a parenthesized list of types separated by commas
-    fn parse_tuple_type(&mut self) -> Result<Type, Box<dyn Error>> {
+    fn parse_tuple_type(&mut self) -> Result<Type, ParsingError> {
         let mut types: Vec<Type> = vec![];
         loop {
             types.push(self.parse_type()?);
@@ -1167,7 +1177,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseParen => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen))
             }
         }
 
@@ -1179,7 +1189,7 @@ impl Parser {
     }
 
 
-    fn parse_while_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_while_loop(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenParen);
 
@@ -1202,7 +1212,7 @@ impl Parser {
     }
 
 
-    fn parse_func_call_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_func_call_stmt(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         // check that the function exists in this context
         match self.current_symbol_table.borrow().get(&id).unwrap().category {
             SymbolType::Function(_, _) => (),
@@ -1223,13 +1233,13 @@ impl Parser {
     /// Parses a return statement after the return keyword has been popped from the queue of tokens
     /// 
     /// Validates that the return type is correct for the function it is returning from.
-    fn parse_return(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_return(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let expr: SyntaxTree = self.parse_expression()?;
-        let expr_type: Type = get_expr_type(&expr, &self.current_symbol_table.borrow())?;
+        let expr_type: Type = get_expr_type(&expr, &self.current_symbol_table.borrow()).unwrap();
         // check that the returned value is type-compatible with the return type of the function
         match &self.current_return_type {
             Some(t) => if !self.in_monad && !expr_type.is_compatible_with(&t) {
-                return Err(Box::new(ParsingError::ReturnTypeMismatch(expr_type, t.clone(), line_num, col_num)))
+                return Err(ParsingError::ReturnTypeMismatch(expr_type, t.clone(), line_num, col_num))
             }
 
             None => panic!()
@@ -1251,7 +1261,7 @@ impl Parser {
     /// # Examples
     /// 
     /// See [`Parser::parse_func_body()`] for examples of use.
-    fn parse_expression(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    pub fn parse_expression(&mut self) -> Result<SyntaxTree, ParsingError> {
         let left = self.parse_logical_or()?;
         let (left_line, left_col) = (left.start_line, left.start_index);
         let next_token = self.tokens.pop_front().unwrap();
@@ -1276,38 +1286,38 @@ impl Parser {
     }
 
 
-    fn parse_logical_or(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_logical_or(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_logical_and, DoublePipe => "||")
     }
 
 
-    fn parse_logical_and(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_logical_and(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_bitwise_xor, DoubleAmpersand => "&&")
     }
     
     
-    fn parse_bitwise_xor(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_bitwise_xor(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_bitwise_or, UpArrow => "^")
     }
 
 
-    fn parse_bitwise_or(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_bitwise_or(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_bitwise_and, Pipe => "|")
     }
 
 
-    fn parse_bitwise_and(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_bitwise_and(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_equality, Ampersand => "&")
     }
 
 
-    fn parse_equality(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_equality(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_concatenation, DoubleEqual => "==", BangEqual => "!=")
     }
     
     
     // Could either be a concatenation or an enum instantiation
-    fn parse_concatenation(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_concatenation(&mut self) -> Result<SyntaxTree, ParsingError> {
         let mut root: SyntaxTree = self.parse_scalar_comparisons()?;
         let (root_line, root_col) = (root.start_line, root.start_index);
         
@@ -1322,21 +1332,25 @@ impl Parser {
                             // is an enum name and must be am instantiation
                             SymbolType::EnumeraionType(_, _, _) => return self.parse_enum_instantiation(root, name),
                             // is not an enum name
-                            _ => get_expr_type(&root, &self.current_symbol_table.borrow())?
+                            _ => get_expr_type(&root, &self.current_symbol_table.borrow()).unwrap()
                         }
                     },
                     _ => rt
                 }
             }
 
-            _ => get_expr_type(&root, &self.current_symbol_table.borrow())?
+            _ => get_expr_type(&root, &self.current_symbol_table.borrow()).unwrap()
         };
         
         match root_type.basic_type.clone() {
             SimpleType::Enum(_, _, _, _, _) => Ok(root),
             _ => { // is an array concatenation
                 loop {
-                    let next_token = self.tokens.pop_front().unwrap();
+                    let next_token = match self.tokens.pop_front() {
+                        Some(token) => token,
+                        None => return Err(ParsingError::EarlyReturn(self.parse_right_assoc_unary()?))
+                    };
+                    
                     match next_token.token_type {
                         TokenType::DoubleColon => {
                             let right: SyntaxTree = self.parse_scalar_comparisons()?;
@@ -1368,7 +1382,7 @@ impl Parser {
     }
 
 
-    fn parse_enum_instantiation(&mut self, root: SyntaxTree, name: String) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_enum_instantiation(&mut self, root: SyntaxTree, name: String) -> Result<SyntaxTree, ParsingError> {
         let (root_line, root_col) = (root.start_line, root.start_index);
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, DoubleColon);
@@ -1376,7 +1390,7 @@ impl Parser {
         let next_token = self.tokens.pop_front().unwrap();
         let variant_id = match next_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+            _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
         };
 
         let variant_params: IndexMap<String, SyntaxTree> = self.parse_enum_variant_params()?;
@@ -1398,7 +1412,7 @@ impl Parser {
                     let variant_param_type = get_expr_type(
                         variant_params.get(p_name).unwrap(), 
                         &self.current_symbol_table.borrow()
-                    )?;
+                    ).unwrap();
                     
                     assert!(variant_param_type.is_compatible_with(p_type));
                 }
@@ -1417,7 +1431,7 @@ impl Parser {
     }
 
 
-    fn parse_enum_variant_params(&mut self) -> Result<IndexMap<String, SyntaxTree>, Box<dyn Error>> {
+    fn parse_enum_variant_params(&mut self) -> Result<IndexMap<String, SyntaxTree>, ParsingError> {
         let mut variant_params: IndexMap<String, SyntaxTree> = IndexMap::new();
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
@@ -1427,7 +1441,7 @@ impl Parser {
                     let next_token = self.tokens.pop_front().unwrap();
                     let arg_id = match next_token.token_type {
                         TokenType::Identifier(id) => id,
-                        _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+                        _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
                     };
 
                     // assert the id is followed by a token
@@ -1443,7 +1457,7 @@ impl Parser {
                     match next_token.token_type {
                         TokenType::CloseParen => break,
                         TokenType::Comma => continue,
-                        _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                        _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen))
                     }
                 }
 
@@ -1457,33 +1471,37 @@ impl Parser {
     }
 
 
-    fn parse_scalar_comparisons(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_scalar_comparisons(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_shifts, RightArrow => ">", LeftArrow => "<", LeftArrowEqual => "<=", RightArrowEqual => ">=")
     }
 
 
-    fn parse_shifts(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_shifts(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_plus_minus, DoubleRightArrow => ">>", TripleRightArrow => ">>>", DoubleLeftArrow => "<<")
     }
 
 
-    fn parse_plus_minus(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_plus_minus(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_mult_div_modulo, Plus => "+", Minus => "-")
     }
 
 
-    fn parse_mult_div_modulo(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_mult_div_modulo(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_arrow, Star => "*", FwdSlash => "/", Percent => "%")
     }
 
 
-    fn parse_arrow(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_arrow(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_right_assoc_unary, Arrow => "->")
     }
 
 
-    fn parse_right_assoc_unary(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        let next_token = self.tokens.pop_front().unwrap();
+    fn parse_right_assoc_unary(&mut self) -> Result<SyntaxTree, ParsingError> {
+        let next_token = match self.tokens.pop_front() {
+            Some(token) => token,
+            None => return Err(ParsingError::EarlyReturn(self.parse_right_assoc_unary()?))
+        };
+
         match next_token.token_type {
             TokenType::Minus => Ok(SyntaxTree::new(SyntaxNode::RightAssocUnaryOperation(
                 "-".to_owned(),
@@ -1513,10 +1531,14 @@ impl Parser {
         }
     }
 
-    fn parse_left_assoc_unary(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
-        let mut root: SyntaxTree = self.parse_range().unwrap();
+    fn parse_left_assoc_unary(&mut self) -> Result<SyntaxTree, ParsingError> {
+        let mut root: SyntaxTree = self.parse_range()?;
         loop {
-            let next_token = self.tokens.pop_front().unwrap();
+            let next_token = match self.tokens.pop_front() {
+                Some(token) => token,
+                None => return Err(ParsingError::EarlyReturn(root))
+            };
+            
             match next_token.token_type {
                 TokenType::DoublePlus => {
                     root = SyntaxTree::new(SyntaxNode::LeftAssocUnaryOperation(
@@ -1595,15 +1617,20 @@ impl Parser {
     }
 
 
-    fn parse_range(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_range(&mut self) -> Result<SyntaxTree, ParsingError> {
         parse_binary_operator!(self, parse_dot, DoubleDot => "..")
     }
 
 
-    fn parse_dot(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_dot(&mut self) -> Result<SyntaxTree, ParsingError> {
         let root: SyntaxTree = self.parse_cast()?;
         loop {
-            match self.tokens.front().unwrap().token_type {
+            let next_token = match self.tokens.front() {
+                Some(token) => token,
+                None => return Err(ParsingError::EarlyReturn(root))
+            };
+
+            match next_token.token_type {
                 TokenType::Dot => {
                     self.tokens.pop_front().unwrap();
                     return self.parse_dot_rhs(root)
@@ -1617,10 +1644,10 @@ impl Parser {
     }
 
 
-    fn parse_dot_rhs(&mut self, left: SyntaxTree) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_dot_rhs(&mut self, left: SyntaxTree) -> Result<SyntaxTree, ParsingError> {
         let root = left;
 
-        let root_type = get_expr_type(&root, &self.current_symbol_table.borrow())?; 
+        let root_type = get_expr_type(&root, &self.current_symbol_table.borrow()).unwrap(); 
         let (root_line, root_col) = (root.start_line, root.start_index);
         let mut root = match root_type.basic_type {
             // structs and enums support the . operator
@@ -1669,15 +1696,19 @@ impl Parser {
     }
 
 
-    fn parse_cast(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_cast(&mut self) -> Result<SyntaxTree, ParsingError> {
         let mut root: SyntaxTree = self.parse_factor()?;
         let (root_line, root_col) = (root.start_line, root.start_index);
 
-        let next_token = self.tokens.pop_front().unwrap();
+        let next_token = match self.tokens.pop_front() {
+            Some(token) => token,
+            None => return Err(ParsingError::EarlyReturn(root))
+        };
+
         match next_token.token_type {
             TokenType::AsKeyword => {
                 let right: Type = self.parse_type()?;
-                let root_type: Type = get_expr_type(&root, &self.current_symbol_table.borrow())?;
+                let root_type: Type = get_expr_type(&root, &self.current_symbol_table.borrow()).unwrap();
                 root = SyntaxTree::new(SyntaxNode::TypeCast(
                     right, root_type, Box::new(root)
                 ), root_line, root_col);
@@ -1693,7 +1724,7 @@ impl Parser {
 
     /// Parses a factor, which is a literal, struct, function invocation, or parenthesized 
     /// expression.
-    fn parse_factor(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_factor(&mut self) -> Result<SyntaxTree, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         match next_token.token_type {
             TokenType::StrLiteral(s) => Ok(SyntaxTree::new(SyntaxNode::StringLiteral(s), next_token.line_number, next_token.col_number)),
@@ -1705,7 +1736,7 @@ impl Parser {
             TokenType::Identifier(id) => self.parse_identifier_factor(id, next_token.line_number, next_token.col_number),
             TokenType::OpenParen => self.parse_tuple_or_paren_expr(),
             TokenType::OpenSquare => self.parse_array_literal(next_token.line_number, next_token.col_number),
-            _ => Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Expression)))
+            _ => Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Expression))
         }
     }
 
@@ -1713,7 +1744,7 @@ impl Parser {
     /// If there is an identifier in a factor which has already been parsed, check if it is a 
     /// regular identifier or if it is part of a function call or struct instantiation, in which 
     /// case parse those.
-    fn parse_identifier_factor(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_identifier_factor(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         // check that the identifier is valid in this context
         match self.current_symbol_table.borrow().get(&id) {
             Some(_) => (),
@@ -1721,7 +1752,11 @@ impl Parser {
         }
 
         // peek at the next token, but don't pop it yet
-        let peek_next_token = self.tokens.pop_front().unwrap();
+        let peek_next_token = match self.tokens.pop_front() {
+            Some(token) => token,
+            None => return Err(ParsingError::EarlyReturn(SyntaxTree::new(SyntaxNode::Identifier(id), line_num, col_num)))
+        };
+
         match peek_next_token.token_type {
             // function call
             TokenType::OpenParen => self.parse_function_call(id, peek_next_token.line_number, peek_next_token.col_number),
@@ -1740,7 +1775,7 @@ impl Parser {
 
     /// Parses a function call and its arguments, will return an error if a monad is returned from 
     /// outside a monadic context
-    fn parse_function_call(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_function_call(&mut self, id: String, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let arguments: Vec<SyntaxTree> = self.parse_func_args()?;
         let return_type = self.current_symbol_table.borrow().get(&id).unwrap();
 
@@ -1761,14 +1796,14 @@ impl Parser {
     /// 
     /// STRUCT_INSTANTIATION ::= "struct" <IDENTIFIER> "{" <STRUCT_MEMBER> "}"
     /// STRUCT_MEMBER ::= <IDENTIFIER> : <EXPRESSION> "," <STRUCT_MEMBER> | <IDENTIFIER> : <EXPRESSION>
-    fn parse_struct_instantiation_members(&mut self, struct_id: &str) -> Result<IndexMap<String, SyntaxTree>, Box<dyn Error>> {
+    fn parse_struct_instantiation_members(&mut self, struct_id: &str) -> Result<IndexMap<String, SyntaxTree>, ParsingError> {
         // get all the comma-separated members of the struct
         let mut members: IndexMap<String, SyntaxTree> = IndexMap::new();
         loop {
             let next_token = self.tokens.pop_front().unwrap();
             let id = match next_token.token_type {
                 TokenType::Identifier(id) => id,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
             };
 
             let next_token = self.tokens.pop_front().unwrap();
@@ -1783,7 +1818,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseCurly => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseCurly))
             }
         }
 
@@ -1805,7 +1840,7 @@ impl Parser {
     }
 
 
-    fn parse_array_literal(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_array_literal(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let mut elems: Vec<SyntaxTree> = vec![];
         loop {
             elems.push(self.parse_expression()?);
@@ -1813,11 +1848,11 @@ impl Parser {
             match &next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseSquare => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseSquare))
             } 
         }
 
-        let inner_type = get_expr_type(elems.get(0).unwrap(), &self.current_symbol_table.borrow())?;
+        let inner_type = get_expr_type(elems.get(0).unwrap(), &self.current_symbol_table.borrow()).unwrap();
         Ok(SyntaxTree::new(SyntaxNode::ArrayLiteral(elems, inner_type), line_num, col_num))
     } 
 
@@ -1825,7 +1860,7 @@ impl Parser {
     /// Used when it is unclear if the next set of tokens represents a parenthesized expression or
     /// a tuple. This can be determined by seeing if the first expression encountered ends with a
     /// comma, making it a tuple, or a close parenthesis, making it a parenthesized expression.
-    fn parse_tuple_or_paren_expr(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_tuple_or_paren_expr(&mut self) -> Result<SyntaxTree, ParsingError> {
         let expr = self.parse_expression()?;
         let next_token = self.tokens.pop_front().unwrap();
         match &next_token.token_type {
@@ -1838,7 +1873,7 @@ impl Parser {
 
     /// Parses a tuple, which syntactically is a comma-separated list of 2 or more expressions, the
     /// whole thing of which is enclosed in parentheses.
-    fn parse_tuple(&mut self, first_expr: SyntaxTree, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_tuple(&mut self, first_expr: SyntaxTree, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         let mut expressions: Vec<SyntaxTree> = vec![first_expr];
         loop {
             expressions.push(self.parse_expression()?);
@@ -1846,7 +1881,7 @@ impl Parser {
             match &next_token.token_type {
                 TokenType::Comma => continue,
                 TokenType::CloseParen => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen))
             } 
         }
 
@@ -1854,13 +1889,13 @@ impl Parser {
     }
 
 
-    fn parse_identifier(&mut self) -> Result<String, Box<dyn Error>> {
+    fn parse_identifier(&mut self) -> Result<String, ParsingError> {
         let next_token = self.tokens.pop_front().unwrap();
         if let TokenType::Identifier(id) = next_token.token_type {
             return Ok(id)
         }
 
-        Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+        Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
     }
 
 
@@ -1870,7 +1905,7 @@ impl Parser {
     /// monad, as in Haskell, for example. This ensures that side effects, such as reading and
     /// writing from standard I/O, are properly ordered and are not parallelized, causing problems
     /// with out-of-order effects - this is why monads are never parallelized.
-    fn parse_do_block(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_do_block(&mut self) -> Result<SyntaxTree, ParsingError> {
         self.in_monad = true;
 
         let param: Option<(String, Type)> = self.parse_do_block_param()?;
@@ -1878,8 +1913,9 @@ impl Parser {
         let (line, col) = (next_token.line_number, next_token.col_number);
         assert_token_type!(next_token, OpenCurly);
 
+        // parse the body of the monad, adding a symbol for the monad's parameter if there is one
         let body = match &param {
-            Some(p) => self.parse_stmt_block(vec![Symbol::new(SymbolType::Variable(p.0.clone(), p.1.clone()), false, 0, 0)])?,
+            Some(p) => self.parse_stmt_block(vec![Symbol::new(SymbolType::Variable(p.0.clone(), p.1.clone(), vec![]), false, 0, 0)])?,
             None => self.parse_stmt_block(vec![])?
         };
 
@@ -1900,7 +1936,7 @@ impl Parser {
     }
 
 
-    fn parse_do_block_param(&mut self) -> Result<Option<(String, Type)>, Box<dyn Error>> {
+    fn parse_do_block_param(&mut self) -> Result<Option<(String, Type)>, ParsingError> {
         match self.tokens.front().unwrap().token_type {
             TokenType::OpenParen => {
                 self.tokens.pop_front().unwrap();
@@ -1928,7 +1964,7 @@ impl Parser {
     }
 
 
-    fn parse_func_args(&mut self) -> Result<Vec<SyntaxTree>, Box<dyn Error>> {
+    fn parse_func_args(&mut self) -> Result<Vec<SyntaxTree>, ParsingError> {
         let mut args: Vec<SyntaxTree> = vec![];
         let next_token = self.tokens.pop_front().unwrap();
         // return an empty vec if there are no arguments
@@ -1947,7 +1983,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::CloseParen => break,
                 TokenType::Comma => continue,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen))
             }
         }
 
@@ -1955,7 +1991,7 @@ impl Parser {
     }
 
 
-    fn parse_selection(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_selection(&mut self, line_num: usize, col_num: usize) -> Result<SyntaxTree, ParsingError> {
         // parse the condition
         let next_token = self.tokens.pop_front().unwrap();
         assert_token_type!(next_token, OpenParen);
@@ -2025,13 +2061,13 @@ impl Parser {
     }
 
 
-    fn parse_enumeration(&mut self, start_line: usize, start_index: usize) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_enumeration(&mut self, start_line: usize, start_index: usize) -> Result<SyntaxTree, ParsingError> {
         self.current_return_type = None;
 
         let next_token = self.tokens.pop_front().unwrap();
         let identifier = match next_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+            _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
         };
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -2077,7 +2113,7 @@ impl Parser {
     }
 
 
-    fn parse_enum_variants(&mut self) -> Result<Vec<SyntaxTree>, Box<dyn Error>> {
+    fn parse_enum_variants(&mut self) -> Result<Vec<SyntaxTree>, ParsingError> {
         let mut variants: Vec<SyntaxTree> = vec![];
         variants.push(self.parse_enum_variant()?);
 
@@ -2086,7 +2122,7 @@ impl Parser {
             match next_token.token_type {
                 TokenType::Comma => variants.push(self.parse_enum_variant()?),
                 TokenType::CloseCurly => break,
-                _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Semicolon)))
+                _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Semicolon))
             }
         }
 
@@ -2094,12 +2130,12 @@ impl Parser {
     }
 
 
-    fn parse_enum_variant(&mut self) -> Result<SyntaxTree, Box<dyn Error>> {
+    fn parse_enum_variant(&mut self) -> Result<SyntaxTree, ParsingError> {
         // get the enum variant name
         let next_token = self.tokens.pop_front().unwrap();
         let identifier = match next_token.token_type {
             TokenType::Identifier(id) => id,
-            _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+            _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
         };
 
         let next_token = self.tokens.pop_front().unwrap();
@@ -2117,7 +2153,7 @@ impl Parser {
                             let param_type = self.parse_type()?;
                             params.insert(param_id, param_type);
                         },
-                        _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier)))
+                        _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::Identifier))
                     }
 
                     // end the loop if it is the end of the params list, or continue if there is
@@ -2126,7 +2162,7 @@ impl Parser {
                     match next_token.token_type {
                         TokenType::CloseParen => break,
                         TokenType::Comma => continue,
-                        _ => return Err(Box::new(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen)))
+                        _ => return Err(ParsingError::UnexpectedToken(next_token, ExpectedToken::CloseParen))
                     }
                 }
 
@@ -2163,7 +2199,7 @@ mod tests {
                 return a;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -2178,7 +2214,7 @@ mod tests {
                 return a;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -2187,7 +2223,7 @@ mod tests {
     #[should_panic]
     fn test_incorrect_return_type() {
         let scanner = Scanner::new("tests/test_incorrect_return_type.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -2196,7 +2232,7 @@ mod tests {
     #[should_panic]
     fn test_io_outside_monad() {
         let scanner = Scanner::new("tests/test_io_outside_monad.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 
@@ -2205,7 +2241,7 @@ mod tests {
     #[should_panic]
     fn test_io_outside_monad_expr() {
         let scanner = Scanner::new("tests/test_io_outside_monad_expr.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         parser.parse().unwrap();
     }
 }

@@ -14,7 +14,7 @@
 //! ```
 //! fn main() {
 //!     let scanner = Scanner::new("my_file.skj").unwrap();
-//!     let mut parser = Parser::new(scanner.tokens);
+//!     let mut parser = Parser::new(scanner.tokens, None);
 //!     let ast = parser.parse().unwrap();
 //!     let mut transpiler = Transpiler::new(ast, "out.c");
 //! }
@@ -60,7 +60,7 @@ impl Transpiler {
     /// 
     /// ```
     /// let scanner = Scanner::new("my_file.skj").unwrap();
-    /// let mut parser = Parser::new(scanner.tokens);
+    /// let mut parser = Parser::new(scanner.tokens, None);
     /// let ast = parser.parse().unwrap();
     /// let mut transpiler = Transpiler::new(ast, "out.c");
     /// ```
@@ -993,7 +993,7 @@ mod test {
     #[test]
     fn test_for_loop() {
         let scanner = Scanner::new("tests/should_pass/test_for_loop.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1016,7 +1016,7 @@ mod test {
                 return 0;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1026,7 +1026,7 @@ mod test {
     #[test]
     fn test_match_self() {
         let scanner = Scanner::new("tests/should_pass/test_match_self.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1049,7 +1049,7 @@ mod test {
                 return 0;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1059,7 +1059,7 @@ mod test {
     #[test]
     fn test_enum_with_enum_as_data_param() {
         let scanner = Scanner::new("tests/should_pass/test_enum_with_enum_as_data_param.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1083,7 +1083,7 @@ mod test {
                 return 0;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1109,7 +1109,7 @@ mod test {
             return 0;
         }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1140,7 +1140,7 @@ mod test {
                 return 0;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1150,7 +1150,7 @@ mod test {
     #[test]
     fn test_struct_with_methods() {
         let scanner = Scanner::new("tests/should_pass/test_struct_with_methods.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1171,7 +1171,7 @@ mod test {
                 return print_hello_world();
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1181,7 +1181,7 @@ mod test {
     #[test]
     fn test_composite_string_io() {
         let scanner = Scanner::new("tests/should_pass/test_composite_string_io.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1203,7 +1203,7 @@ mod test {
                 return 1;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1221,7 +1221,7 @@ mod test {
                 };
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1231,7 +1231,7 @@ mod test {
     #[test]
     fn test_externally_bound_variables() {
         let scanner = Scanner::new("tests/should_pass/test_externally_bound_variables.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
     }
@@ -1240,7 +1240,7 @@ mod test {
     #[test]
     fn test_runge_kutta() {
         let scanner = Scanner::new("tests/should_pass/test_runge_kutta.skj").unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1259,7 +1259,7 @@ mod test {
                 };
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
         Command::new("cmd").args(["g++ test_out.cpp -std=c++20"]).output().unwrap();
@@ -1291,7 +1291,7 @@ mod test {
                 return 0;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
     }
@@ -1314,7 +1314,7 @@ mod test {
                 return 0;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
     }
@@ -1337,7 +1337,7 @@ mod test {
                 return 0;
             }
         ".to_owned()).unwrap();
-        let mut parser = Parser::new(scanner.tokens);
+        let mut parser = Parser::new(scanner.tokens, None);
         let ast = parser.parse().unwrap();
         Transpiler::new(ast, "test_out.cpp");
     }

@@ -48,8 +48,8 @@ use crate::parser::types::{SimpleType, Type};
 /// Represents different types of symbols that can be stored in the symbol table.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SymbolType {
-    /// Represents a variable with a name and a type.
-    Variable(String, Type),
+    /// Represents a variable with a name, a type, and a set of dependencies.
+    Variable(String, Type, Vec<Symbol>),
     /// Represents a struct with its name and type
     StructType(String, Type),
     /// Represents an enumeration with a name and its variants.
@@ -63,7 +63,7 @@ impl ToString for SymbolType {
     /// Converts a `SymbolType` to a string, returning the name of the symbol.
     fn to_string(&self) -> String {
         match self {
-            Self::Variable(name, _) 
+            Self::Variable(name, _, _) 
             | Self::Function(name, _) 
             | Self::EnumeraionType(name, _, _)
             | Self::StructType(name, _) => name.to_string()
@@ -76,7 +76,7 @@ impl SymbolType {
     /// Returns the type associated with the `SymbolType`.
     pub fn get_type(&self) -> Type {
         match self {
-            Self::Variable(_, t) 
+            Self::Variable(_, t, _) 
             | Self::Function(_, t) 
             | Self::EnumeraionType(_, t, _)
             | Self::StructType(_, t) => t.clone()   
@@ -139,7 +139,7 @@ impl Symbol {
 /// A struct representing a symbol table, which can store and retrieve symbols, and supports a 
 /// hierarchical structure with parent and child symbol tables which represents the heirarchy of
 /// scope within the program.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SymbolTable {
     /// A hash map storing symbols by their names.
     table: HashMap<String, Symbol>,

@@ -24,7 +24,7 @@ fn main() {
 
     println!("Compiling {}...", input_filename);
     let scanner = Scanner::new(input_filename.as_str()).unwrap();
-    let mut parser = Parser::new(scanner.tokens);
+    let mut parser = Parser::new(scanner.tokens, None);
     match parser.parse() {
         Err(e) => eprintln!("{}", e),
         Ok(ast) => {
