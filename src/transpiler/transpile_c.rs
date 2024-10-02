@@ -29,7 +29,7 @@ use std::io::Write;
 use std::rc::Rc;
 
 use crate::parser::types::{Type, SimpleType};
-use crate::semantics::symbol_table::SymbolTable;
+use crate::semantics::symbol_table::{Symbol, SymbolTable, SymbolType};
 use crate::semantics::typechecking::{fold_constexpr_index, get_array_inner_type, get_expr_type};
 use crate::{Pattern, SyntaxNode, SyntaxTree};
 
@@ -258,8 +258,52 @@ impl Transpiler {
         expr: &SyntaxTree, 
         indent: usize
     ) -> Result<String, Box<dyn Error>> {
-        let is_const = match !self.symbol_table.borrow().get(id).unwrap().mutable {
-            true => "const ",
+        let var_symbol = self.symbol_table.borrow().get(id).unwrap();        
+        let var_type_str = self.transpile_symbol_type(&var_symbol, &var_type);
+
+        let (is_auto_parallel, dependencies) = match var_symbol.category {
+            SymbolType::Variable(_, _, dependencies, auto_parallel) => 
+                (auto_parallel, dependencies),
+            _ => panic!()
+        };
+
+        let expr =  if is_auto_parallel {
+            let core_expr = self.transpile_typed_expr_c(expr, &var_type)?;
+            let dependency_names: Vec<String> = dependencies.iter().map(|d| d.category.to_string()).collect();
+            let dependency_types: Vec<Type> = dependencies.iter().map(|d| d.get_type()).collect();
+            let template_types: Vec<Type> = vec![vec![var_type.clone()], dependency_types.clone()].concat();
+            
+            match dependency_names.len() {
+                0 => format!("AutoFuture<{}>([]({}) {{ return {}; }})", 
+                    template_types.iter().map(|t| t.as_ctype_str()).collect::<Vec<String>>().join(", "), 
+                    dependency_types.iter().zip(dependency_names.iter()).map(|(t, n)| format!("{} {}", t.as_ctype_str(), n)).collect::<Vec<String>>().join(", "), 
+                    core_expr
+                ),
+
+                _ => format!("AutoFuture<{}>([]({}) {{ return {}; }}, {})", 
+                    template_types.iter().map(|t| t.as_ctype_str()).collect::<Vec<String>>().join(", "), 
+                    dependency_types.iter().zip(dependency_names.iter()).map(|(t, n)| format!("{} {}", t.as_ctype_str(), n)).collect::<Vec<String>>().join(", "), 
+                    core_expr, 
+                    dependency_names.iter().map(|id| id).cloned().collect::<Vec<String>>().join(", ")
+                )
+            }
+        } else {
+            self.transpile_typed_expr_c(expr, &var_type)?
+        };
+
+        Ok(format!(
+            "{}{} {} = {};",
+            "    ".repeat(indent), 
+            var_type_str,
+            id, 
+            expr
+        ))
+    }
+
+
+    fn transpile_symbol_type(&mut self, symbol: &Symbol, var_type: &Type) -> String {
+        let is_const = match !symbol.mutable {
+            true => "const",
             false => ""
         };
 
@@ -268,19 +312,19 @@ impl Transpiler {
             _ => var_type.clone()
         };
 
-        let var_type_str = match var_type.basic_type {
-            SimpleType::IOMonad(_, _) => String::from("auto"),
-            _ => var_type.as_ctype_str()
-        };
+        match var_type.basic_type {
+            SimpleType::IOMonad(_, _) => return String::from("auto"),
+            _ => ()
+        }
 
-        Ok(format!(
-            "{}{}{} {} = {};",
-            "    ".repeat(indent), 
-            is_const,
-            var_type_str,
-            id, 
-            self.transpile_typed_expr_c(expr, &var_type)?
-        ))
+        match &symbol.category {
+            SymbolType::Variable(_, _, dependencies, true) => if dependencies.is_empty() {
+                format!("AutoFuture<{}>", var_type.as_ctype_str())
+            } else {
+                format!("AutoFuture<{}, {}>", var_type.as_ctype_str(), dependencies.iter().map(|d| d.get_type().as_ctype_str()).collect::<Vec<String>>().join(", "))
+            },
+            _ => format!("{} {}", is_const, var_type.as_ctype_str())
+        }
     }
 
 

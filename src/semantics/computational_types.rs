@@ -66,7 +66,7 @@ pub fn calculate_computational_dependencies(expr: &SyntaxTree, symbol_table: &Sy
         | SyntaxNode::BreakStmt
         | SyntaxNode::ContinueStmt => vec![],
         SyntaxNode::ForStmt(i, t, expr, body) => vec![
-            vec![Symbol::new(SymbolType::Variable(i.clone(), t.clone(), vec![]), true, 0, 0)],
+            vec![Symbol::new(SymbolType::Variable(i.clone(), t.clone(), vec![], false), true, 0, 0)],
             calculate_computational_dependencies(&expr, symbol_table)?,
             calculate_computational_dependencies(&body, symbol_table)?
         ].concat(),
@@ -86,7 +86,8 @@ pub fn calculate_computational_dependencies(expr: &SyntaxTree, symbol_table: &Sy
             Symbol::new(super::symbol_table::SymbolType::Variable(
                 "self".to_owned(), 
                 symbol_table.self_ref.as_ref().unwrap().clone(),
-                vec![]
+                vec![],
+                false
             ), false, 0, 0)
         ],
         SyntaxNode::EnumVariant(_, _)
@@ -111,9 +112,9 @@ mod tests {
 
     fn prepare() -> SymbolTable {
         let mut table = SymbolTable::new(None).borrow().clone();
-        table.insert(Symbol::new(super::SymbolType::Variable("x".to_string(), Type::from_basic(SimpleType::I32), vec![]), false, 0, 0));
-        table.insert(Symbol::new(super::SymbolType::Variable("y".to_string(), Type::from_basic(SimpleType::I32), vec![]), false, 0, 0));
-        table.insert(Symbol::new(super::SymbolType::Variable("z".to_string(), Type::from_basic(SimpleType::I32), vec![]), false, 0, 0));
+        table.insert(Symbol::new(super::SymbolType::Variable("x".to_string(), Type::from_basic(SimpleType::I32), vec![], false), false, 0, 0));
+        table.insert(Symbol::new(super::SymbolType::Variable("y".to_string(), Type::from_basic(SimpleType::I32), vec![], false), false, 0, 0));
+        table.insert(Symbol::new(super::SymbolType::Variable("z".to_string(), Type::from_basic(SimpleType::I32), vec![], false), false, 0, 0));
         table.insert(Symbol::new(super::SymbolType::Function("foo".to_string(), Type::from_basic(
             SimpleType::Function(
                 Box::new(Type::from_basic(SimpleType::I32)),
